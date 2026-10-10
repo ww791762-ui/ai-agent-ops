@@ -40,3 +40,45 @@ class DictSource:
     async def get_config(self, data_id: str, group: str) -> str:
         self._check()
         return self.configs[(data_id, group)]
+
+
+from pathlib import Path  # noqa: E402
+
+from opsagent.agent.deps import Deps  # noqa: E402
+from opsagent.agent.scripted_llm import ScriptedLLM  # noqa: E402
+from opsagent.gateway.adapters.mock import MockScenario  # noqa: E402
+from opsagent.gateway.gateway import Gateway  # noqa: E402
+from opsagent.gateway.tools import build_registry  # noqa: E402
+from opsagent.gateway.types import InMemoryRecorder  # noqa: E402
+from opsagent.nacos.cache import FileCache  # noqa: E402
+from opsagent.nacos.source import SeedDirSource  # noqa: E402
+from opsagent.nacos.store import ConfigStore  # noqa: E402
+from opsagent.topology.model import Topology, load_topology_yaml  # noqa: E402
+
+NOW = "2026-10-10T10:00:00+08:00"
+
+
+def load_topo() -> Topology:
+    return load_topology_yaml(Path("fixtures/topology.yaml").read_text(encoding="utf-8"))
+
+
+async def seed_store(tmp_path) -> ConfigStore:
+    ids = build_registry(load_topo(), MockScenario(name="x", responses=[])).ids()
+    store = ConfigStore(SeedDirSource(Path("nacos_seed")), FileCache(tmp_path / "cache"), "stable", ids)
+    await store.load()
+    return store
+
+
+async def make_deps(tmp_path, script, scenario: str = "b_pay_slow", recorder=None):
+    topo = load_topo()
+    store = await seed_store(tmp_path)
+    registry = build_registry(topo, MockScenario.from_yaml_file(Path(f"fixtures/scenarios/{scenario}.yaml")))
+    rec = recorder if recorder is not None else InMemoryRecorder()
+    llm = ScriptedLLM(script)
+    gateway = Gateway(registry, topo, rec, store.redactor, backoff_s=0)
+    return Deps(llm=llm, store=store, gateway=gateway, topo=topo), llm, rec
+
+
+def skill_ref(store: ConfigStore, name: str) -> dict:
+    s = store.skill(name)
+    return {"id": s.meta.id, "version": s.meta.version, "md5": s.md5}
