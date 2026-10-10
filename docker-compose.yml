@@ -1,0 +1,14 @@
+# docker-compose.yml
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: opsagent
+      POSTGRES_PASSWORD: opsagent
+      POSTGRES_DB: opsagent
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d
+volumes:
+  pgdata:
