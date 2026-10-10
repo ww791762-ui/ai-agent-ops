@@ -118,6 +118,8 @@ def test_redact_obj_is_idempotent(r):
     ("2026-10-09 req headers Authorization: Basic dXNlcjpwYXNz", ["dXNlcjpwYXNz", "Basic"]),
     ("Cookie: SESSIONID=s3ss10n; theme=dark", ["s3ss10n", "SESSIONID"]),
     ("set-cookie: JSESSIONID=abc999", ["abc999"]),
+    ("Cookie: token=abc; SESSIONID=s3ss10n", ["s3ss10n", "abc"]),
+    ("Cookie: secret=1; JSESSIONID=XYZ123", ["XYZ123"]),
 ])
 def test_free_text_secret_gaps(r, text, leaks):
     out = r.redact_text(text)
