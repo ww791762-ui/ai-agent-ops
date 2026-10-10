@@ -1,7 +1,8 @@
 你负责把一次运维排查过程整理成结构化报告。下面是完整的排查记录。
 
 要求：
-1. summary：一到两句话的结论。如果用户问的是链路，summary 直接回答链路。
+0. 识别结果的 intent 为 topology_query（链路问答）时，只填 summary 和 paths：summary 按顺序说明每一跳的节点名称、类型、协议和超时（拓扑中没有登记的写"未登记"），有多条链路时逐条说明区别；hops、findings、hypotheses、suggestions 一律留空列表。链路问答没有检查健康状态，不要写"正常"或"异常"，也不要给排查建议。下面第 1–5、8 条只适用于排查类问题。
+1. summary：一到两句话的结论。
 2. paths：涉及的链路，每条是按顺序排列的节点名称。
 3. hops：逐跳检查结果，status 只能是 normal / abnormal / unknown；observation 写观察到的现象。
 4. findings：关键事实。

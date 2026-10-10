@@ -115,6 +115,19 @@ async def test_finalize_out_of_scope_uses_reply_without_llm(tmp_path):  # T10
     assert out["report"]["summary"] == "一期只读" and llm.calls == []
 
 
+async def test_finalize_topology_query_keeps_only_summary_and_paths(tmp_path):
+    report = Report(summary="proxy → f5-vip-01 → kong → svc-b-pay", paths=[["proxy", "f5-vip-01", "kong", "svc-b-pay"]],
+                    hops=[HopStatus(node="kong", status="normal", evidence_ids=["ev-1"])],
+                    findings=[Finding(fact="全程 HTTP", evidence_ids=["ev-1"])],
+                    hypotheses=[Hypothesis(cause="无", support=["ev-1"])], suggestions=["去查日志"])
+    deps, _, _ = await make_deps(tmp_path, [report])
+    out = await make_finalize(deps)(ts_state(deps.store, intent={"intent": "topology_query"},
+                                             skill=skill_ref(deps.store, "topology_qa"), evidence_ids=["ev-1"]))
+    r = out["report"]
+    assert r["summary"] == report.summary and r["paths"] == report.paths
+    assert r["hops"] == r["findings"] == r["hypotheses"] == r["suggestions"] == []
+
+
 async def test_finalize_unresolved_needs_human(tmp_path):
     deps, _, _ = await make_deps(tmp_path, [])
     out = await make_finalize(deps)(ts_state(deps.store, unresolved=["「支付服务」对应多个节点"]))

@@ -61,6 +61,9 @@ def make_finalize(deps: Deps):
                              if isinstance(m, AIMessage) and m.content), "")
                 report = Report(summary=str(last) or "未能生成结构化报告", needs_human=not last)
                 partial.append("报告格式校验失败，输出为纯文本")
+            if intent.get("intent") == "topology_query":
+                # 链路问答只查了拓扑，没有检查健康状态：只保留链路，避免出现假的"正常"和排障建议
+                report = report.model_copy(update={"hops": [], "findings": [], "hypotheses": [], "suggestions": []})
 
         failed = failed_tool_calls(state.get("tool_log", []))
         if failed:
