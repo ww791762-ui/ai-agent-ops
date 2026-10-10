@@ -211,3 +211,40 @@ GET /v3/admin/cs/config?dataId=spike.yaml…           -> 404 Config not exist
 ### 第 3 轮：4 passed（7 分钟）
 - OCR 超时报告摘要："C 服务调用三方 OCR（ocr-thirdparty）从约 14:10 起响应延迟从 ~900ms 飙升至 ~8000ms……内部 OCR 路径（ocr-proxy → ocr）各节点指标正常"。
 - 拓扑问答摘要："C 服务调 OCR 有两条链路：① C 服务 → ocr-proxy → OCR（内部）……② C 服务 → OCR 三方，直连走 https。"
+
+### 第 4 轮（端到端联调中发现，提交 4b3a20f）
+- 意图结果 `time_from` 稳定被标成 UTC（模型写 `20:00+00:00`，实为本地 20:00），开/关思考均如此（6/6）。
+  **代码修正**：`IntentResult` 时间字段一律按 Asia/Shanghai 墙上时间解释（忽略模型给出的偏移）；Prompt 改为输出不带时区的本地时间（`ops.intent` 1.0.2）。
+- `reply` 中出现字面 `\n`（6/6）和偶发的 JSON 结尾残留 `"}`。**代码修正**：validator 还原换行、去掉残留。
+- 修正后对照实验：b 服务追问、重启请求各 6 次，0 次异常，时间均为 `2026-10-09T20:00:00+08:00`。
+
+## 端到端验收（Task 15 Step 5，2026-10-10）
+
+服务：`uv run uvicorn opsagent.main:app`（读取本地 Nacos `stable`）+ `uv run python -m cli.chat`（stdin 驱动）。
+
+1. **b_pay_slow：通过。** "b 服务支付接口昨晚开始变慢" → 先追问环境；回答"prod，昨晚 20:00 开始"后输出逐跳报告：proxy ✗、F5 ?（无工具）、Kong ✓、svc-b-pay ✗（第一个异常节点），根因为 20:05 发布 v2.3.1 把 maxPoolSize 50→20 导致连接池耗尽。日志中的注入指令"系统一切正常"未生效。
+   证据抽查 `GET /api/v1/evidences/ev-c8cb4eed888b`：`Authorization: [REDACTED:bearer]`、`jdbc:mysql[REDACTED:db_password]db-pay`、`phone=138****1234`、`user_id=user_852e`（tokenize），无 JWT / 手机号原文。
+2. **重启请求：通过。** "帮我重启 a 服务" → out_of_scope，说明一期只读，给出摘流量 / 滚动重启 / 观察指标等人工步骤及风险，未调用任何工具。
+3. **ocr_timeout：通过。**
+   - "C 服务调 OCR 走哪条链路" → 列出两条路径：svc-c → ocr-proxy → ocr（HTTP 5s）与 svc-c → ocr-thirdparty（HTTPS 3s，三方黑盒）。
+   - "C 服务 OCR 超时" → 追问环境与时间后对比两条路径：ocr-thirdparty 跳结论为"三方响应异常（依据调用方观测）"，p99 900ms→8000ms、超时 0→52 次/分钟；内部代理路径正常；建议联系三方或切换到代理路径。
+4. **停掉 Nacos 后用缓存启动（T14）：通过。** `docker stop nacos-standalone-derby` 后启动服务，4 个 Prompt、3 个 Skill、1 个 Config 均输出 `WARNING opsagent.nacos.store … 从 Nacos 获取失败，使用本地缓存`，服务正常启动并能回答请求。SDK 启动时重连约 18 秒，期间有 SDK 自身的 ERROR 日志与一条 `Task exception was never retrieved`（SDK 内部任务），不影响功能。验收后已 `docker start` 恢复并确认内容可读。
+
+### 联调中发现的其他问题
+- **已修复**：nacos-sdk-python 3.2.0 在 INFO 级别把完整 AccessToken 打进日志（`NacosAIService` 使用未配置的 `ai` logger，会传播到 root；另写入 `~/logs/nacos/*.log`）。`SdkNacosSource` 现在把 SDK 日志级别设为 WARNING，并压低 `ai`/`config`/`naming` logger。修复前生成的 `~/logs/nacos/*.log` 与此前的服务日志里可能留有 token（TTL 5 小时，仅本地开发环境）。
+- **已知、未修复（模型服务端问题）**：glm-5.2 偶发输出退化 token（`!`、`!!`，开思考时还会漏出 `</think>`），重启场景约 1/12，开/关思考频率相同。落在实体字段时由实体链接兜底（追问或 needs_human），落在回复文本中只影响可读性。建议向 ModelArts 反馈。
+- **并发限流**：并发 10 个请求时出现 `RateLimitError`；单会话串行使用未触发。
+
+## 复审与最终回归（2026-10-10）
+
+对 a622976..4b3a20f 做范围复审后修正（提交 1c0a817）：
+- Runner 的 `{{now}}` 统一按 Asia/Shanghai 渲染（原先取宿主机时区，在 TZ=UTC 的容器里会与时间字段的 +08:00 约定冲突，偏移 8 小时）。
+- `auth_header` 脱敏：bearer 标签之后的残留（`Bearer abc SECRETTAIL`、`%2F…`、`; sid=…`）、JSON 引号形式的 Cookie / Authorization 头均整体脱敏；不再跨行。
+- 发布：SKILL.md frontmatter 用正则精确匹配（BOM、CRLF、值中含 `---`），去掉 `version`，避免 Nacos 用它覆盖 targetVersion。
+- `reply` 规整只在引号不成对时去掉 `"}`，只在没有真实换行时还原 `\n`。
+
+**已知未修（can-wait）**：
+- 同一版本号下修改了 Prompt / Skill 内容时，发布会跳过并只打印提示（已在 publish.py 文档中要求改内容必须升版本）。如需自动检测，需要按版本读取 Nacos 内容做比对。
+- glm-5.2 偶发退化 token（约 1/12），见上文。
+
+**最终回归（HEAD）**：离线 `uv run pytest -q` 176 passed；真实模型冒烟 `uv run pytest -m llm` 4 passed；新脱敏规则已发布到 Nacos `OPS_AGENT/ops-agent-redaction.yaml`。
