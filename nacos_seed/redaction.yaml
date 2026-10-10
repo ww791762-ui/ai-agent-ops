@@ -2,8 +2,10 @@ block_fields: [password, passwd, token, secret, authorization, cookie, api_key, 
 block_patterns:
   private_key: '-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----'
   bearer: '(?i)bearer\s+[A-Za-z0-9._~+/=-]+'
-  # 请求头整行（Authorization / Cookie / Set-Cookie）；已被 bearer 等规则替换过的不再覆盖，保留更具体的类型
-  auth_header: '(?i)\b(?:authorization|cookie)\s*:\s*(?!\s|\[REDACTED:bearer\])[^\r\n]+'
+  # 请求头（Authorization / Cookie / Set-Cookie），支持 JSON 引号形式（只替换引号内的值）；
+  # 值恰好只剩 [REDACTED:bearer] 时不再覆盖，保留更具体的类型；bearer 后还有残留内容则整体替换。
+  # 用 [ \t]* 而非 \s*，避免 "cookie:" 后跨行吞掉下一行。
+  auth_header: '(?i)\b(?:authorization|cookie)(?:["''][ \t]*:[ \t]*(?![ \t\r\n]|$|["'']?\[REDACTED:bearer\]["'']?[ \t]*(?:[,}\r\n]|$))(?:"(?:[^"\\\r\n]|\\.)*(?="[ \t]*(?:[,}\r\n]|$))|''(?:[^''\\\r\n]|\\.)*(?=''[ \t]*(?:[,}\r\n]|$)))|["'']?[ \t]*:[ \t]*(?![ \t\r\n]|$|["'']?\[REDACTED:bearer\]["'']?[ \t]*(?:[,}\r\n]|$))[^\r\n]+)'
   jwt: '\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'
   aws_ak: '\bAKIA[0-9A-Z]{16}\b'
   url_secret: '(?i)(?<=[?&])(?:token|sign|signature|access_token|secret)=[^&\s"'']+'

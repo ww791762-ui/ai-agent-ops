@@ -19,3 +19,15 @@ def test_intent_times_are_shanghai_wall_clock(raw):
 def test_intent_reply_unescapes_literal_newlines_and_json_tail():
     r = IntentResult(intent="out_of_scope", reply='不能重启。\\n建议：\\n1. 确认状态。"}')
     assert r.reply == "不能重启。\n建议：\n1. 确认状态。"
+
+
+def test_runner_now_is_rendered_in_shanghai_regardless_of_host_tz():
+    # Prompt 声明 {{now}} 是 Asia/Shanghai；宿主机时区为 UTC 时也不能把 UTC 墙上时间交给模型
+    from opsagent.runner.runner import local_now_iso
+
+    assert local_now_iso(datetime(2026, 10, 10, 1, 0, tzinfo=timezone.utc)) == "2026-10-10T09:00:00+08:00"
+
+
+@pytest.mark.parametrize("text", ['示例 {"a": "b"}', "第一行\n第二行里有字面 \\n 不动"])
+def test_intent_reply_keeps_legitimate_text(text):
+    assert IntentResult(intent="out_of_scope", reply=text).reply == text

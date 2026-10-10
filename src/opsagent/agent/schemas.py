@@ -30,7 +30,13 @@ class IntentResult(BaseModel):
     @classmethod
     def _unescape_reply(cls, v: str | None) -> str | None:
         # 模型在 function call 参数里会把换行多转义一次，并偶尔残留 JSON 结尾的 "}
-        return _JSON_TAIL.sub("", v.replace("\\n", "\n")) if v else v
+        if not v:
+            return v
+        if "\n" not in v:
+            v = v.replace("\\n", "\n")
+        if v.count('"') % 2 == 1:  # 引号不成对才是残留
+            v = _JSON_TAIL.sub("", v)
+        return v
 
 
 class Finding(BaseModel):

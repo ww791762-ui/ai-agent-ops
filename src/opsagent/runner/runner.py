@@ -6,9 +6,16 @@ from typing import Any
 
 from langgraph.types import Command
 
+from opsagent.agent.schemas import LOCAL_TZ
 from opsagent.ids import new_id
 from opsagent.nacos.store import ConfigStore
 from opsagent.storage.repo import RunRepo
+
+
+def local_now_iso(dt: datetime) -> str:
+    """Prompt 中的 {{now}} 约定为 Asia/Shanghai 时间，与宿主机时区无关。"""
+    return dt.astimezone(LOCAL_TZ).isoformat()
+
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +71,7 @@ class Runner:
                                 prompt_versions=self._store.versions())
         await self._runs.mark_running(run_id)
         self._spawn(run_id, session_id, {"question": question, "run_id": run_id,
-                                         "now": self._clock().astimezone().isoformat()})
+                                         "now": local_now_iso(self._clock())})
         return session_id, run_id
 
     def _spawn(self, run_id: str, session_id: str, graph_input: Any) -> None:

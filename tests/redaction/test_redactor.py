@@ -120,6 +120,14 @@ def test_redact_obj_is_idempotent(r):
     ("set-cookie: JSESSIONID=abc999", ["abc999"]),
     ("Cookie: token=abc; SESSIONID=s3ss10n", ["s3ss10n", "abc"]),
     ("Cookie: secret=1; JSESSIONID=XYZ123", ["XYZ123"]),
+    ("Authorization: Bearer abc SECRETTAIL", ["abc", "SECRETTAIL"]),
+    ("Authorization: Bearer abc%2Fdef123", ["abc", "%2F", "def123"]),
+    ("Cookie: bearer abc; sid=SECRET1", ["abc", "SECRET1"]),
+    ('{"cookie": "sid=SECRET2"}', ["SECRET2"]),
+    ('"Cookie":"sid=SECRET3"', ["SECRET3"]),
+    ('{"Authorization": "Basic dXNlcjpwYXNz"}', ["dXNlcjpwYXNz", "Basic"]),
+    ('{"Authorization": "Bearer abc SECRET4", "x": 1}', ["abc", "SECRET4"]),
+    ("Cookie: \"a\" sid=SECRET5", ["SECRET5"]),
 ])
 def test_free_text_secret_gaps(r, text, leaks):
     out = r.redact_text(text)
@@ -135,10 +143,26 @@ def test_authorization_bearer_keeps_bearer_label(r):
 
 
 @pytest.mark.parametrize("text", [
+    "Authorization: Bearer abc.def",
+    '{"Authorization": "Bearer abc.def", "x": 1}',
+])
+def test_bearer_label_is_stable(r, text):
+    stats = Counter()
+    once = r.redact_text(text, stats)
+    assert "[REDACTED:bearer]" in once and "abc.def" not in once
+    assert "auth_header" not in stats
+    stats2 = Counter()
+    assert r.redact_text(once, stats2) == once
+    assert not stats2
+
+
+@pytest.mark.parametrize("text", [
     "GET /b/pay status=200 upstream_time=3.05",
     "2026-10-09T20:12:03+08:00 ok",
     "maxPoolSize=20 minIdle=5",
     "Kong upstream P99 3.1s, 499 增多",
+    "Authorization: [REDACTED:bearer]",
+    "cookie:\n  enabled: true",
 ])
 def test_ordinary_log_text_untouched(r, text):
     assert r.redact_text(text) == text

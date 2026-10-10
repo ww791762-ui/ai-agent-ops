@@ -1,3 +1,4 @@
+import pytest
 import io
 import json
 import re
@@ -120,3 +121,26 @@ def test_skill_upload_zip_uses_nacos_name():
     md = zf.read("http-5xx/SKILL.md").decode("utf-8")
     assert md.startswith("---\nname: http-5xx\n")
     assert "id: http_5xx" in zf.read("http-5xx/skill.yaml").decode("utf-8")
+
+
+@pytest.mark.parametrize("text", [
+    "---\nname: http_5xx\ndescription: a---b\n---\n# body\n",
+    "---\ndescription: a---b\nname: http_5xx\n---\n# body\n",
+    "﻿---\nname: http_5xx\n---\n# body\n",
+    "---\r\nname: http_5xx\r\nversion: 9.9.9\r\n---\r\n# body\r\n",
+])
+def test_rename_frontmatter_single_name_and_no_version(text):
+    # Nacos 优先用 frontmatter 的 version 决定上传版本，必须去掉，版本只由 targetVersion（skill.yaml）决定
+    from nacos_seed.publish import _rename_frontmatter
+
+    out = _rename_frontmatter(text, "http-5xx")
+    fm = out.split("# body")[0]
+    assert fm.count("name:") == 1 and "name: http-5xx" in fm
+    assert "version:" not in fm and "http_5xx" not in out
+    assert out.count("---") - text.count("a---b") == 2 and "# body" in out
+
+
+def test_rename_frontmatter_adds_block_when_missing():
+    from nacos_seed.publish import _rename_frontmatter
+
+    assert _rename_frontmatter("# body\n", "x-y") == "---\nname: x-y\n---\n# body\n"

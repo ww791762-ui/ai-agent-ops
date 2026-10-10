@@ -9,6 +9,8 @@
   PUT labels 会整体替换 label 表（包括 latest），所以先读出现有 label 再合并。
 - Skill 名称只允许小写字母、数字和连字符，上传时把 SKILL.md 的 name 换成 nacos_skill_name(id)。
 - 同一版本已存在时不重复上传内容（Skill upload 遇到同版本会自动升 patch 版本）。
+  因此修改 Prompt / Skill 内容后**必须同时升版本号**（manifest.yaml / skill.yaml），否则发布会跳过、Nacos 仍是旧内容。
+- label 采用读取-合并-写回，不要并发运行多个发布进程。
 """
 import argparse
 import io
@@ -53,15 +55,18 @@ def skill_upload_zip(skill_id: str) -> bytes:
     return buf.getvalue()
 
 
+_FRONTMATTER = re.compile(r"^\ufeff?---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", re.S)
+
+
 def _rename_frontmatter(text: str, name: str) -> str:
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) == 3:
-            fm, n = re.subn(r"^name:.*$", f"name: {name}", parts[1], count=1, flags=re.M)
-            if not n:
-                fm = f"\nname: {name}" + fm
-            return f"---{fm}---{parts[2]}"
-    return f"---\nname: {name}\n---\n{text}"
+    """把 frontmatter 的 name 换成 Nacos 名称，并去掉 version（Nacos 会优先用它而不是 targetVersion）。"""
+    m = _FRONTMATTER.match(text)
+    if not m:
+        return f"---\nname: {name}\n---\n{text}"
+    lines = [ln for ln in m.group(1).splitlines()
+             if not re.match(r"(?:name|version)\s*:", ln)]
+    fm = "\n".join([f"name: {name}", *lines])
+    return f"---\n{fm}\n---\n{text[m.end():]}"
 
 
 def _version_status(detail: dict | None, versions_key: str, version: str) -> str | None:
