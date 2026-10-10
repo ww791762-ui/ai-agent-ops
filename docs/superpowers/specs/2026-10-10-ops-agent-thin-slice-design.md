@@ -27,7 +27,7 @@ CLI 提问 → 输入脱敏 → 意图识别（必要时追问） → 从 Nacos 
 | Agent 编排 | LangGraph（自定义节点，不使用 prebuilt 的 `ToolNode` / `create_react_agent`） |
 | 模型 | `langchain-openai` 的 `ChatOpenAI`，按 OpenAI 兼容协议调用 |
 | Web | FastAPI（async） |
-| 存储 | PostgreSQL 16（`pgvector/pgvector` 镜像，通过 docker compose 启动），SQLAlchemy async + Alembic |
+| 存储 | PostgreSQL 16（`pgvector/pgvector` 镜像，通过 docker compose 启动），SQLAlchemy async + psycopg 3；细线阶段用 `create_all` 建表，不引入 Alembic |
 | 检查点 | `langgraph-checkpoint-postgres` 的 `AsyncPostgresSaver` |
 | Prompt / Skill / 脱敏规则 | Nacos 3.2.4（本地部署），`nacos-sdk-python` v2 |
 | 测试 | pytest、pytest-asyncio |
@@ -44,7 +44,7 @@ CLI 提问 → 输入脱敏 → 意图识别（必要时追问） → 从 Nacos 
 | OPSAGENT_NACOS_NAMESPACE | `public` |
 | OPSAGENT_NACOS_USERNAME / OPSAGENT_NACOS_PASSWORD | 环境变量（Nacos 已开启鉴权） |
 | OPSAGENT_NACOS_LABEL | `stable` |
-| OPSAGENT_DB_URL | `postgresql+asyncpg://opsagent:opsagent@localhost:5432/opsagent` |
+| OPSAGENT_DB_URL | `postgresql+psycopg://opsagent:opsagent@localhost:5432/opsagent` |
 | OPSAGENT_CACHE_DIR | `.cache/nacos` |
 
 ## 3 代码结构
@@ -92,10 +92,10 @@ flowchart LR
 | 节点 | 实现 |
 | --- | --- |
 | redact_input | 用 Redactor 处理用户最新一条消息，替换后再写入 state |
-| intent | LLM 结构化输出（Prompt `ops.intent`）→ `IntentResult{intent, confidence, entities, missing, candidates}`。随后由程序做实体链接，把实体解析为拓扑节点 ID，并把相对时间换算为 UTC 时间范围。细线阶段支持的意图：`troubleshoot`、`topology_query`、`out_of_scope` |
+| intent | LLM 结构化输出（Prompt `ops.intent`）→ `IntentResult`。`troubleshoot` 意图必须包含环境和时间，缺失时追问。随后由程序做实体链接，把实体解析为拓扑节点 ID，并把相对时间换算为 UTC 时间范围。细线阶段支持的意图：`troubleshoot`、`topology_query`、`out_of_scope` |
 | clarify | 通过 `interrupt({"question": ...})` 暂停执行，回复以 `Command(resume=answer)` 恢复。同一个 Run 最多追问 1 次；之后仍然缺失的字段采用默认值（env=prod，时间=最近 1 小时），并在报告中注明 |
 | route_skill | 按意图和关键词匹配 Skill；没有匹配时使用 `generic_troubleshoot`。把 skill_id、版本、md5 写入 state 和 runs 表 |
-| agent | `ChatOpenAI.bind_tools(只包含 Skill 的 allowed_tools 对应的 schema)`。系统消息由 `ops.system`、`SKILL.md` 和链接后的实体拼成；工具结果放在 `<untrusted_data>` 标签内 |
+| agent | 通过一层很薄的 `LLM` 接口（`chat` / `structured`）调用 `ChatOpenAI`，便于测试时替换为脚本化模型。只绑定 Skill 的 allowed_tools 对应的 schema；模型侧的工具名用下划线形式（`logs_search`），因为 OpenAI 协议不允许函数名中出现点号。系统消息由 `ops.system`、`SKILL.md` 和链接后的实体拼成；工具结果放在 `<untrusted_data>` 标签内 |
 | tools | 对每个 tool_call 调用 `gateway.invoke(call, run_ctx)`，返回 ToolMessage（内容包含 status、data、evidence_id），并执行 `step_count += 1` |
 | reflect | 先做程序检查：required_evidence 是否覆盖、证据 ID 是否存在、链路类问题是否检查了每一跳。程序检查通过后，再用 LLM 检查（`ops.reflect.inrun`）。不通过时，把问题作为消息回传给 agent，`reflect_rounds += 1` |
 | finalize | 用 `ops.report` 生成 `Report` 并做 Pydantic 校验；剔除引用了不存在证据的条目，并在 `dropped_claims` 中计数；对输出做脱敏后写入 reports 表 |
@@ -108,7 +108,7 @@ flowchart LR
 
 ## 5 Nacos 集成
 
-- **Prompt**：`ops.system`、`ops.intent`、`ops.reflect.inrun`、`ops.report`，通过 `get_prompt` 按 label 获取，并订阅变更。
+- **Prompt**：`ops.system`、`ops.intent`、`ops.reflect.inrun`、`ops.report`，通过 `get_prompt` 按 label 获取；和 Skill 一样每 60 秒轮询一次，按 md5 判断变化。
 - **Skill**：`http_5xx`、`topology_qa`、`generic_troubleshoot`。按 label 下载 ZIP，解压后得到 `SKILL.md` 和 `skill.yaml`。Python SDK 没有 Skill 订阅接口，所以每 60 秒轮询一次，按 md5 判断是否有变化。
 - **脱敏规则**：Nacos 配置 `ops-agent-redaction.yaml`，group 为 `OPS_AGENT`，订阅变更。
 - **本地缓存**：每次加载成功都写入 `OPSAGENT_CACHE_DIR`。Nacos 不可用时读取缓存并记录 warning；没有缓存时启动失败。
