@@ -6,7 +6,8 @@ def test_defaults_match_spec():
     s = Settings(_env_file=None)
     assert s.llm_provider == "openai_compatible"
     assert s.llm_base_url == "https://api.modelarts-maas.com/openai/v1"
-    assert s.llm_model == "glm-5.2"
+    assert s.llm_model == "deepseek-v4.1-flash"
+    assert s.llm_thinking is False
     assert s.nacos_namespace == "public"
     assert s.nacos_label == "stable"
 

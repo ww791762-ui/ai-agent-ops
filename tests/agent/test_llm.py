@@ -70,8 +70,10 @@ def test_from_settings_disables_thinking_and_uses_long_timeout():
     assert model.extra_body == {"thinking": {"type": "disabled"}}
 
 
-def test_from_settings_extra_body_overridable():
+def test_from_settings_thinking_switch_and_extra_body_merge():
     from opsagent.config import Settings
 
-    s = Settings(_env_file=None, llm_api_key="k", llm_extra_body={})
-    assert not OpenAICompatLLM.from_settings(s)._model.extra_body
+    s = Settings(_env_file=None, llm_api_key="k", llm_thinking=True, llm_extra_body={"top_k": 5})
+    assert OpenAICompatLLM.from_settings(s)._model.extra_body == {"thinking": {"type": "enabled"}, "top_k": 5}
+    s = Settings(_env_file=None, llm_api_key="k", llm_extra_body={"thinking": {"type": "auto"}})
+    assert OpenAICompatLLM.from_settings(s)._model.extra_body == {"thinking": {"type": "auto"}}

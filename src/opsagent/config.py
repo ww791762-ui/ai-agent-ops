@@ -11,12 +11,15 @@ class Settings(BaseSettings):
 
     llm_provider: str = "openai_compatible"
     llm_base_url: str = "https://api.modelarts-maas.com/openai/v1"
-    llm_model: str = "glm-5.2"
+    llm_model: str = "deepseek-v4.1-flash"
     llm_api_key: SecretStr = SecretStr("")
-    llm_timeout_s: float = 180  # glm-5.2 生成完整报告约 70 秒，60 秒会超时
-    llm_structured_method: str = "function_calling"  # function_calling / json_schema / json_mode
-    # 透传给模型接口的额外参数；glm-5.2 默认开启思考，耗时约为关闭时的 2–3 倍，诊断质量相当，所以默认关闭
-    llm_extra_body: dict[str, Any] = Field(default_factory=lambda: {"thinking": {"type": "disabled"}})
+    llm_timeout_s: float = 180  # 开启思考后生成完整报告可能超过 60 秒
+    # function_calling / json_schema / json_mode；deepseek-v4.1-flash 的 json_schema 不可用（JSON 被包在 ```json 代码块里）
+    llm_structured_method: str = "function_calling"
+    # 思考模式：默认关闭（更快，冒烟场景质量足够）；处理复杂问题时设为 true
+    llm_thinking: bool = False
+    # 透传给模型接口的额外参数，与 thinking 合并，同名键以这里为准
+    llm_extra_body: dict[str, Any] = Field(default_factory=dict)
 
     nacos_addr: str = "127.0.0.1:8848"
     nacos_namespace: str = "public"

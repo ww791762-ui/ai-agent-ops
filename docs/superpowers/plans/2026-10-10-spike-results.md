@@ -248,3 +248,23 @@ GET /v3/admin/cs/config?dataId=spike.yaml…           -> 404 Config not exist
 - glm-5.2 偶发退化 token（约 1/12），见上文。
 
 **最终回归（HEAD）**：离线 `uv run pytest -q` 176 passed；真实模型冒烟 `uv run pytest -m llm` 4 passed；新脱敏规则已发布到 Nacos `OPS_AGENT/ops-agent-redaction.yaml`。
+
+## 切换到 deepseek-v4.1-flash（2026-10-10）
+
+同一 ModelArts MaaS endpoint，模型 ID `deepseek-v4.1-flash`（需要 API Key 的模型白名单包含它，否则 401 `ModelArts.81015`）。
+
+- **thinking 参数**：`{"thinking": {"type": "disabled"}}` 生效（reasoning_tokens 0），`enabled` 也生效；不传时默认开启。
+- **结构化输出**：
+  - `function_calling`：关闭思考时模型偶尔不遵守强制 `tool_choice`，改为文字作答（小样例中复现）；`structured()` 的一次重试可兜住，冒烟用例中未出现失败。
+  - `json_schema`：不可用。关闭思考时 JSON 被包在 ```json 代码块里；开启思考时冒烟 4 个用例全部在 IntentResult 解析失败。
+  - `json_mode`：小样例可用，但 schema 不会传给模型，未采用。
+- **冒烟对比**（`uv run pytest -m llm`）：
+
+  | 配置 | 结果 | 耗时 |
+  | --- | --- | --- |
+  | function_calling + 关闭思考 | 4 passed（两轮） | 90s / 118s |
+  | function_calling + 开启思考 | 4 passed | 313s（OCR 用例 175s；与其他配置并行运行，仅供参考） |
+  | json_schema + 开启思考 | 4 failed | — |
+  | 对照：glm-5.2 + 关闭思考 | 4 passed | 5–7 分钟 |
+
+- **决定**：默认 `function_calling` + 关闭思考。新增 `OPSAGENT_LLM_THINKING`（默认 false），复杂问题时设为 true；`llm_extra_body` 默认改为 `{}`，与 thinking 合并，同名键以 extra_body 为准。

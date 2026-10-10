@@ -26,9 +26,9 @@ class OpenAICompatLLM:
     def from_settings(cls, s: Settings) -> "OpenAICompatLLM":
         from langchain_openai import ChatOpenAI
 
+        extra_body = {"thinking": {"type": "enabled" if s.llm_thinking else "disabled"}, **s.llm_extra_body}
         model = ChatOpenAI(base_url=s.llm_base_url, model=s.llm_model, api_key=s.llm_api_key.get_secret_value(),
-                           timeout=s.llm_timeout_s, max_retries=2, temperature=0,
-                           extra_body=s.llm_extra_body or None)
+                           timeout=s.llm_timeout_s, max_retries=2, temperature=0, extra_body=extra_body)
         return cls(model, s.llm_structured_method)
 
     async def chat(self, messages: list[BaseMessage], tools: list[dict]) -> AIMessage:

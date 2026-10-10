@@ -38,7 +38,8 @@ CLI 提问 → 输入脱敏 → 意图识别（必要时追问） → 从 Nacos 
 | --- | --- |
 | OPSAGENT_LLM_PROVIDER | `openai_compatible` |
 | OPSAGENT_LLM_BASE_URL | `https://api.modelarts-maas.com/openai/v1` |
-| OPSAGENT_LLM_MODEL | `glm-5.2` |
+| OPSAGENT_LLM_MODEL | `deepseek-v4.1-flash`（2026-10-10 由 glm-5.2 切换，见 spike-results） |
+| OPSAGENT_LLM_THINKING | `false`（复杂问题可开启） |
 | OPSAGENT_LLM_API_KEY | 环境变量，必填 |
 | OPSAGENT_NACOS_ADDR | `127.0.0.1:8848` |
 | OPSAGENT_NACOS_NAMESPACE | `public` |
