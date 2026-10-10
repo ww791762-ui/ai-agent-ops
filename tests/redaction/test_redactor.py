@@ -105,3 +105,38 @@ def test_redact_obj_is_idempotent(r):
     obj = {"user_id": "88231", "password": "x", "nested": [{"order_id": 7, "msg": "user_id=1"}]}
     once = r.redact_obj(obj)
     assert r.redact_obj(once) == once
+
+
+@pytest.mark.parametrize("text,leaks", [
+    ('{"password": "a b c"}', ["a b c", " b c"]),
+    ("password='q r' next", ["q r", "'q", " r'"]),
+    ("passwd='x' next", ["'x'"]),
+    ("access_token: abc123 next", ["abc123"]),
+    ("client_secret=cs-998877 next", ["cs-998877"]),
+    ("api_key=ak-445566 next", ["ak-445566"]),
+    ("apikey: ak-778899", ["ak-778899"]),
+    ("2026-10-09 req headers Authorization: Basic dXNlcjpwYXNz", ["dXNlcjpwYXNz", "Basic"]),
+    ("Cookie: SESSIONID=s3ss10n; theme=dark", ["s3ss10n", "SESSIONID"]),
+    ("set-cookie: JSESSIONID=abc999", ["abc999"]),
+])
+def test_free_text_secret_gaps(r, text, leaks):
+    out = r.redact_text(text)
+    assert "[REDACTED:" in out
+    for leak in leaks:
+        assert leak not in out
+    assert r.redact_text(out) == out
+
+
+def test_authorization_bearer_keeps_bearer_label(r):
+    out = r.redact_text("Authorization: Bearer abc.def")
+    assert "[REDACTED:bearer]" in out and "abc.def" not in out
+
+
+@pytest.mark.parametrize("text", [
+    "GET /b/pay status=200 upstream_time=3.05",
+    "2026-10-09T20:12:03+08:00 ok",
+    "maxPoolSize=20 minIdle=5",
+    "Kong upstream P99 3.1s, 499 增多",
+])
+def test_ordinary_log_text_untouched(r, text):
+    assert r.redact_text(text) == text

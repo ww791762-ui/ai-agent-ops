@@ -6,7 +6,9 @@ block_patterns:
   aws_ak: '\bAKIA[0-9A-Z]{16}\b'
   url_secret: '(?i)(?<=[?&])(?:token|sign|signature|access_token|secret)=[^&\s"'']+'
   db_password: '://[^:/\s@]+:[^@/\s]+@'
-  kv_secret: '(?i)\b(?:password|passwd|pwd|secret|token)"?\s*[=:]\s*"?[^\s,;&"'']+'
+  kv_secret: '(?i)(?:\b|_)(?:password|passwd|pwd|secret|token|api_key|apikey)["'']?\s*[=:]\s*(?:"[^"]*"|''[^'']*''|[^\s,;&"'']+)'
+  # 请求头整行（Authorization / Cookie / Set-Cookie）；已被 bearer 等规则替换过的不再覆盖，保留更具体的类型
+  auth_header: '(?i)\b(?:authorization|cookie)\s*:\s*(?!\s|\[REDACTED:)[^\r\n]+'
 mask_patterns:
   phone: '(?<!\d)1[3-9]\d{9}(?!\d)'
   id_card: '(?<![\dXx])\d{17}[\dXx](?![\dXx])'
