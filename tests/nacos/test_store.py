@@ -84,3 +84,35 @@ async def test_refresh_when_down_keeps_current(tmp_path):
     src.down = True
     await s.refresh()
     assert s.prompt("ops.system").version == "1.0.0"
+
+
+@pytest.mark.parametrize("bad", ["", "block_fields: [password]\n", "block_patterns: {}\n"])
+async def test_rules_without_block_patterns_rejected_on_refresh(tmp_path, bad):
+    src = source()
+    s = store(src, tmp_path)
+    await s.load()
+    src.configs[(REDACTION_DATA_ID, REDACTION_GROUP)] = bad
+    await s.refresh()
+    assert "[REDACTED:bearer]" in s.redactor().redact_text("Bearer abc")
+    # 不合法的规则也不能覆盖本地缓存
+    fresh = source()
+    fresh.down = True
+    s2 = store(fresh, tmp_path)
+    await s2.load()
+    assert "[REDACTED:bearer]" in s2.redactor().redact_text("Bearer abc")
+
+
+async def test_rules_without_block_patterns_at_startup_uses_cache(tmp_path):
+    await store(source(), tmp_path).load()
+    src = source()
+    src.configs[(REDACTION_DATA_ID, REDACTION_GROUP)] = "block_fields: [password]\n"
+    s = store(src, tmp_path)
+    await s.load()
+    assert "[REDACTED:bearer]" in s.redactor().redact_text("Bearer abc")
+
+
+async def test_rules_without_block_patterns_and_no_cache_fails(tmp_path):
+    src = source()
+    src.configs[(REDACTION_DATA_ID, REDACTION_GROUP)] = "block_patterns: {}\n"
+    with pytest.raises(StoreUnavailable):
+        await store(src, tmp_path).load()

@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from opsagent.redaction.redactor import Redactor
-from opsagent.redaction.rules import load_rules
+from opsagent.redaction.rules import RedactionRules, load_rules
 
 from .cache import FileCache
 from .skill import Skill, SkillError, parse_skill_zip
@@ -18,6 +18,15 @@ REDACTION_GROUP = "OPS_AGENT"
 
 class StoreUnavailable(RuntimeError):
     pass
+
+
+def _parse_rules(text: str) -> RedactionRules:
+    """解析脱敏规则；缺少核心内容（block_patterns 为空）的文档视为不合法，避免静默关闭脱敏。"""
+    rules = load_rules(text)
+    if not rules.block_patterns:
+        raise ValueError("脱敏规则缺少 block_patterns")
+    Redactor(rules)  # 正则必须都能编译
+    return rules
 
 
 class ConfigStore:
@@ -107,7 +116,7 @@ class ConfigStore:
     async def _sync_redaction(self, strict: bool) -> None:
         try:
             text = await self._source.get_config(REDACTION_DATA_ID, REDACTION_GROUP)
-            rules = load_rules(text)
+            rules = _parse_rules(text)
         except Exception as e:
             if self._redactor is not None:
                 log.warning("脱敏规则刷新失败，保留当前规则: %s", e)
@@ -115,7 +124,12 @@ class ConfigStore:
             cached = self._fallback("config", REDACTION_DATA_ID, strict, e)
             if cached is None:
                 return
-            rules = load_rules(cached[0].decode("utf-8"))
+            try:
+                rules = _parse_rules(cached[0].decode("utf-8"))
+            except Exception as ce:
+                if strict:
+                    raise StoreUnavailable(f"脱敏规则不可用，本地缓存也不合法: {ce}") from ce
+                return
         else:
             self._cache.save("config", REDACTION_DATA_ID, text.encode("utf-8"), {})
         self._redactor = Redactor(rules)
