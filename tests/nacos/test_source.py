@@ -61,3 +61,23 @@ async def test_sdk_source_empty_config_raises():
     with pytest.raises(LookupError):
         await _source(cfg=_FakeCfg("")).get_config("x.yaml", "OPS_AGENT")
     assert await _source(cfg=_FakeCfg("a: 1")).get_config("x.yaml", "OPS_AGENT") == "a: 1"
+
+
+def test_sdk_client_config_suppresses_info_logs():
+    # SDK 在 INFO 级别把完整 AccessToken 写入日志和 ~/logs/nacos/*.log
+    import logging
+
+    from opsagent.config import Settings
+    from opsagent.nacos.source import SdkNacosSource
+
+    cfg = SdkNacosSource(Settings(_env_file=None))._client_config()
+    assert cfg.log_level >= logging.WARNING
+
+
+def test_quiet_sdk_loggers_hides_access_token_info_logs():
+    import logging
+
+    from opsagent.nacos.source import quiet_sdk_loggers
+
+    quiet_sdk_loggers()
+    assert not logging.getLogger("ai").isEnabledFor(logging.INFO)

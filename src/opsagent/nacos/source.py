@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -27,6 +28,12 @@ class NacosSource(Protocol):
     async def get_config(self, data_id: str, group: str) -> str: ...
 
 
+def quiet_sdk_loggers() -> None:
+    """nacos-sdk-python 3.2.0 的 NacosAIService 用未配置的 "ai" logger 打印完整 AccessToken（会传播到 root），统一压到 WARNING。"""
+    for name in ("ai", "config", "naming"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 class SdkNacosSource:
     """通过 nacos-sdk-python（v2 API）读取本地 Nacos。
 
@@ -41,12 +48,20 @@ class SdkNacosSource:
         self._ai = None
         self._cfg = None
 
+    def _client_config(self):
+        from v2.nacos import ClientConfigBuilder
+
+        # SDK 在 INFO 级别把完整 AccessToken 写入日志（含 ~/logs/nacos/*.log），只保留 WARNING 以上
+        return (ClientConfigBuilder().server_address(self._s.nacos_addr).namespace_id(self._s.nacos_namespace)
+                .username(self._s.nacos_username).password(self._s.nacos_password.get_secret_value())
+                .log_level(logging.WARNING).build())
+
     async def start(self) -> None:
-        from v2.nacos import ClientConfigBuilder, NacosConfigService
+        from v2.nacos import NacosConfigService
         from v2.nacos.ai.nacos_ai_service import NacosAIService
 
-        cfg = (ClientConfigBuilder().server_address(self._s.nacos_addr).namespace_id(self._s.nacos_namespace)
-               .username(self._s.nacos_username).password(self._s.nacos_password.get_secret_value()).build())
+        quiet_sdk_loggers()
+        cfg = self._client_config()
         self._ai = await NacosAIService.create_ai_service(cfg)
         self._cfg = await NacosConfigService.create_config_service(cfg)
 
