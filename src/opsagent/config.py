@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     llm_model: str = "glm-5.2"
     llm_api_key: SecretStr = SecretStr("")
     llm_timeout_s: float = 60
+    llm_structured_method: str = "function_calling"  # function_calling / json_schema / json_mode
 
     nacos_addr: str = "127.0.0.1:8848"
     nacos_namespace: str = "public"
