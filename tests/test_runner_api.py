@@ -197,3 +197,12 @@ async def test_run_exceeding_timeout_is_failed(tmp_path, db_sm):
     await asyncio.wait_for(runner.drain(), 5)
     run = await runs.get(rid)
     assert run.status == "failed" and "运行超时" in run.error
+
+
+async def test_failed_run_error_is_redacted(tmp_path, db_sm):
+    runner, runs, _ = await setup(tmp_path, db_sm, [RuntimeError("连接失败 password=hunter2 13812341234")])
+    _, rid = await runner.submit(None, "b 服务支付接口昨晚开始变慢")
+    await runner.drain()
+    run = await runs.get(rid)
+    assert run.status == "failed" and "连接失败" in run.error
+    assert "hunter2" not in run.error and "13812341234" not in run.error

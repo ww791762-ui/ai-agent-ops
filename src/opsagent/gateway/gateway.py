@@ -54,9 +54,13 @@ class Gateway:
         try:
             res = await self._call_with_retry(spec, args)
         except Exception as e:
-            log.warning("工具 %s 执行失败: %s", spec.id, e)
+            try:  # 先脱敏再截断，避免截断把敏感串切坏导致规则漏匹配；原始异常不进日志
+                detail = self._redactor_provider().with_salt(ctx.run_id).redact_text(str(e))[:200]
+            except Exception:
+                detail = "错误信息已隐藏"
+            log.warning("工具 %s 执行失败: %s: %s", spec.id, type(e).__name__, detail)
             return await self._finish(ctx, spec.id, call.args, started,
-                                      ToolResult(status="backend_error", error=f"后端调用失败: {str(e)[:200]}"))
+                                      ToolResult(status="backend_error", error=f"后端调用失败: {detail}"))
         try:
             stats: Counter = Counter()
             plain = json.loads(json.dumps(res.data, ensure_ascii=False, default=str))

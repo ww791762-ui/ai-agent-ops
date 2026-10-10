@@ -181,3 +181,22 @@ async def test_recorder_failure_discards_result():
     res = await gw.invoke(call("kong_upstream_health", node_id="kong"), ctx)
     assert res.status == "backend_error" and res.data is None and res.evidence_id is None
     assert "调用记录写入失败" in res.error
+
+
+async def test_backend_error_log_is_redacted_and_truncated_after(caplog):
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig123"
+
+    async def bad(args: BaseModel) -> AdapterResult:
+        # JWT 跨过第 200 个字符：先截断再脱敏会把 JWT 切坏、导致漏脱
+        raise RuntimeError("x" * 180 + " token=abc123 " + jwt)
+
+    reg = ToolRegistry()
+    reg.register(ToolSpec("x.bad", "test", NodeArgs, bad))
+    gw, rec, ctx = make_gateway(registry=reg)
+    with caplog.at_level("DEBUG", logger="opsagent.gateway.gateway"):
+        res = await gw.invoke(call("x_bad", node_id="kong"), ctx)
+    assert res.status == "backend_error"
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert logged
+    for text in (logged, res.error, rec.calls[0]["error"]):
+        assert "abc123" not in text and "eyJhbGci" not in text

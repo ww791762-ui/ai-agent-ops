@@ -100,9 +100,16 @@ class Runner:
         except Exception as e:
             log.exception("Run %s 执行失败", run_id)
             try:
-                await self._runs.finish(run_id, status="failed", error=f"{type(e).__name__}: {e}"[:500])
+                await self._runs.finish(run_id, status="failed", error=self._safe_error(run_id, e))
             except Exception:
                 log.exception("Run %s 标记失败状态时出错", run_id)
+
+    def _safe_error(self, run_id: str, e: Exception) -> str:
+        """存库的错误信息先按 Run 盐值脱敏再截断；脱敏失败时只保留异常类型。"""
+        try:
+            return self._store.redactor().with_salt(run_id).redact_text(f"{type(e).__name__}: {e}")[:500]
+        except Exception:
+            return f"{type(e).__name__}: 错误信息已隐藏"
 
     async def drain(self) -> None:
         while self._tasks:
