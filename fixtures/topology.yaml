@@ -1,0 +1,33 @@
+nodes:
+  - {id: proxy, type: proxy, name: proxy, aliases: [nginx, 入口代理], description: 公网入口 Nginx}
+  - {id: f5-vip-01, type: lb, name: F5 vip-01, aliases: [f5], description: 公网入口 F5，转发到 Kong}
+  - {id: kong, type: api_gateway, name: Kong, aliases: [kong 网关, 网关]}
+  - {id: svc-a, type: service, name: a 服务, aliases: [a]}
+  - {id: svc-a-login, type: endpoint, name: a 服务 /login, parent: svc-a, aliases: [登录接口, /login]}
+  - {id: svc-b, type: service, name: b 服务, aliases: [b, 支付服务]}
+  - {id: svc-b-pay, type: endpoint, name: b 服务 /api/pay, parent: svc-b, aliases: [支付接口, /api/pay]}
+  - {id: svc-paycb, type: service, name: 支付回调服务, aliases: [支付服务, paycb]}
+  - {id: f5-vip-02, type: lb, name: F5 vip-02, aliases: [f5], description: a 服务访问游戏服的内部 F5}
+  - {id: envoy-game, type: sidecar_proxy, name: Envoy（游戏）, aliases: [envoy]}
+  - {id: gameserver, type: game_server, name: gameServer, aliases: [游戏服], description: 长连接，按区服部署}
+  - {id: svc-c, type: service, name: C 服务, aliases: [c]}
+  - {id: ocr-proxy, type: service, name: ocr-proxy}
+  - {id: ocr, type: service, name: OCR（内部）, aliases: [内部 ocr]}
+  - {id: ocr-thirdparty, type: external, name: OCR 三方, aliases: [三方 ocr, 第三方 ocr], description: 外部厂商，黑盒}
+edges:
+  - {from: proxy, to: f5-vip-01, protocol: http}
+  - {from: f5-vip-01, to: kong, protocol: http}
+  - {from: kong, to: svc-a-login, protocol: http, route_rule: /a/login}
+  - {from: kong, to: svc-b-pay, protocol: http, route_rule: /b/pay}
+  - {from: svc-a, to: f5-vip-02, protocol: tcp}
+  - {from: f5-vip-02, to: envoy-game, protocol: tcp}
+  - {from: envoy-game, to: gameserver, protocol: tcp, timeout: 5s}
+  - {from: svc-c, to: ocr-proxy, protocol: http, timeout: 5s}
+  - {from: ocr-proxy, to: ocr, protocol: http}
+  - {from: svc-c, to: ocr-thirdparty, protocol: https, timeout: 3s, description: 直连三方}
+paths:
+  - {id: public-a-login, entry: public, endpoint: svc-a-login, hops: [proxy, f5-vip-01, kong, svc-a-login]}
+  - {id: public-b-pay, entry: public, endpoint: svc-b-pay, hops: [proxy, f5-vip-01, kong, svc-b-pay]}
+  - {id: a-gameserver, entry: svc-a, endpoint: gameserver, hops: [svc-a, f5-vip-02, envoy-game, gameserver]}
+  - {id: c-ocr-via-proxy, entry: svc-c, endpoint: ocr, hops: [svc-c, ocr-proxy, ocr]}
+  - {id: c-ocr-direct, entry: svc-c, endpoint: ocr-thirdparty, hops: [svc-c, ocr-thirdparty]}
