@@ -5,6 +5,7 @@ from opsagent.nacos.skill import Skill
 from opsagent.topology.model import Topology
 
 from ..deps import Deps
+from ..llm import StructuredOutputError
 from ..prompting import render
 from ..schemas import ReflectVerdict
 from ..transcript import render_transcript
@@ -54,8 +55,13 @@ def make_reflect(deps: Deps):
         if not issues:
             prompt = render(deps.store.prompt("ops.reflect.inrun").template,
                             required_evidence="、".join(skill.meta.required_evidence) or "无")
-            verdict = await deps.llm.structured(
-                [SystemMessage(prompt), HumanMessage(render_transcript(state))], ReflectVerdict)
+            try:
+                verdict = await deps.llm.structured(
+                    [SystemMessage(prompt), HumanMessage(render_transcript(state))], ReflectVerdict)
+            except StructuredOutputError:
+                return {"reflect_retry": False,
+                        "partial_reasons": [*state.get("partial_reasons", []),
+                                            "反思检查失败（模型输出不合格），未完成自查"]}
             issues = [] if verdict.ok else (verdict.issues or ["审核未通过"])
         if not issues:
             return {"reflect_retry": False}

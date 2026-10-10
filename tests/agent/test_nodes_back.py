@@ -140,3 +140,10 @@ async def test_finalize_redacts_output(tmp_path):  # T3（输出侧）
     deps, _, _ = await make_deps(tmp_path, [Report(summary="日志里有 token=abc123 和 13812341234")])
     out = await make_finalize(deps)(ts_state(deps.store))
     assert "abc123" not in out["report"]["summary"] and "138****1234" in out["report"]["summary"]
+
+
+async def test_reflect_structured_failure_degrades_without_retry(tmp_path):
+    deps, _, _ = await make_deps(tmp_path, [StructuredOutputError("bad")])
+    out = await make_reflect(deps)(ts_state(deps.store, tool_log=FULL_LOG))
+    assert out["reflect_retry"] is False
+    assert any("反思检查失败" in r for r in out["partial_reasons"])
