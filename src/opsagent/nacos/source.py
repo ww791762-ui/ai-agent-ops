@@ -36,7 +36,8 @@ class SdkNacosSource:
         self._cfg = None
 
     async def start(self) -> None:
-        from v2.nacos import ClientConfigBuilder, NacosAIService, NacosConfigService
+        from v2.nacos import ClientConfigBuilder, NacosConfigService
+        from v2.nacos.ai.nacos_ai_service import NacosAIService
 
         cfg = (ClientConfigBuilder().server_address(self._s.nacos_addr).namespace_id(self._s.nacos_namespace)
                .username(self._s.nacos_username).password(self._s.nacos_password.get_secret_value()).build())
