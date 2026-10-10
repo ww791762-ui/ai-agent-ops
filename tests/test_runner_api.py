@@ -206,3 +206,9 @@ async def test_failed_run_error_is_redacted(tmp_path, db_sm):
     run = await runs.get(rid)
     assert run.status == "failed" and "连接失败" in run.error
     assert "hunter2" not in run.error and "13812341234" not in run.error
+
+
+async def test_overlong_session_id_is_422():
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app()), base_url="http://test")
+    r = await client.post("/api/v1/chat", json={"session_id": "s" * 65, "message": "hi"})
+    assert r.status_code == 422

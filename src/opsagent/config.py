@@ -1,5 +1,6 @@
 # src/opsagent/config.py
 from pathlib import Path
+from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,7 +22,7 @@ class Settings(BaseSettings):
     nacos_password: SecretStr = SecretStr("")
     nacos_label: str = "stable"
     nacos_poll_s: int = 60
-    nacos_mode: str = "sdk"  # sdk：读取 Nacos；seed：直接读取 nacos_seed/ 目录（离线开发用）
+    nacos_mode: Literal["sdk", "seed"] = "sdk"  # sdk：读取 Nacos；seed：直接读取 nacos_seed/ 目录（离线开发用）
 
     db_url: str = "postgresql+psycopg://opsagent:opsagent@localhost:5432/opsagent"
     cache_dir: Path = Path(".cache/nacos")

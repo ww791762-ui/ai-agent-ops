@@ -27,3 +27,15 @@ def test_secret_not_in_repr(monkeypatch):
 def test_new_id_prefix_and_uniqueness():
     a, b = new_id("run"), new_id("run")
     assert a.startswith("run-") and a != b
+
+
+def test_nacos_mode_is_validated(monkeypatch):
+    import pytest
+    from pydantic import ValidationError
+
+    assert Settings(_env_file=None).nacos_mode == "sdk"
+    monkeypatch.setenv("OPSAGENT_NACOS_MODE", "seed")
+    assert Settings(_env_file=None).nacos_mode == "seed"
+    monkeypatch.setenv("OPSAGENT_NACOS_MODE", "sdkk")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
