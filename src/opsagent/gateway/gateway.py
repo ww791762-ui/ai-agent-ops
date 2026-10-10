@@ -16,6 +16,8 @@ from .types import AdapterResult, EvidenceRecorder, RunContext, ToolCallReq, Too
 
 log = logging.getLogger(__name__)
 
+_FIXED_ERRORS = {"敏感数据过滤失败，结果已丢弃"}  # 网关自带的固定文案，不含外部内容
+
 
 class Gateway:
     """所有工具调用的唯一入口：白名单 → 参数校验 → 节点校验 → 执行（含重试）→ 脱敏 → 记录。"""
@@ -79,11 +81,22 @@ class Gateway:
     async def _finish(self, ctx: RunContext, tool_id: str, raw_args: dict, started: float,
                       result: ToolResult) -> ToolResult:
         try:
-            args = self._redactor_provider().with_salt(ctx.run_id).redact_obj(raw_args)
+            redactor = self._redactor_provider().with_salt(ctx.run_id)
+            args = redactor.redact_obj(raw_args)
+            if result.error is not None:
+                result = result.model_copy(update={"error": redactor.redact_text(result.error)})
         except Exception:
+            log.exception("工具 %s 的参数/错误信息脱敏失败", tool_id)
             args = {}
-        evidence_id = await self._recorder.record(
-            run_id=ctx.run_id, tool=tool_id, args=args, status=result.status, data=result.data,
-            redaction_stats=result.redaction_stats, duration_ms=int((time.monotonic() - started) * 1000),
-            error=result.error, make_evidence=result.status in ("ok", "truncated"))
+            if result.error is not None and result.error not in _FIXED_ERRORS:
+                result = result.model_copy(update={"error": "错误信息已隐藏"})
+        try:
+            evidence_id = await self._recorder.record(
+                run_id=ctx.run_id, tool=tool_id, args=args, status=result.status, data=result.data,
+                redaction_stats=result.redaction_stats,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                error=result.error, make_evidence=result.status in ("ok", "truncated"))
+        except Exception:
+            log.exception("工具 %s 的调用记录写入失败，结果已丢弃", tool_id)
+            return ToolResult(status="backend_error", error="调用记录写入失败，结果已丢弃")
         return result.model_copy(update={"evidence_id": evidence_id})

@@ -1,8 +1,11 @@
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
+
+_WRAPPER_TAG = re.compile(r"<(/?)untrusted_data>", re.IGNORECASE)
 
 ToolStatus = Literal["ok", "empty", "truncated", "denied", "backend_error"]
 
@@ -28,6 +31,7 @@ class ToolResult(BaseModel):
 
     def to_model_content(self) -> str:
         payload = json.dumps(self.model_dump(exclude={"redaction_stats"}), ensure_ascii=False, default=str)
+        payload = _WRAPPER_TAG.sub(lambda m: f"&lt;{m.group(1)}untrusted_data&gt;", payload)
         return f"<untrusted_data>\n{payload}\n</untrusted_data>"
 
 
