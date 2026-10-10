@@ -191,3 +191,23 @@ GET /v3/admin/cs/config?dataId=spike.yaml…           -> 404 Config not exist
   - 某个版本如果已经存在，就不再上传或创建草稿；只有版本还没上线时才调用 force-publish。这样重复运行是幂等的。
   - `batch_zip` 和 `upload/batch` 不再使用。
 - **Task 9 OpenAICompatLLM 的 method 参数**：用 `function_calling`（默认值不变）。不要用 `json_schema`。如果以后需要备选，可以用 `json_mode`。
+
+## Prompt 调优记录（Task 15 冒烟）
+
+### 第 1 轮：3 failed / 1 passed（13 分钟）
+- `test_b_pay_slow_finds_conn_pool`、`test_ocr_timeout_black_box_wording`：`reflect` 节点结构化调用 `OpenAITimeoutError`（60 秒 × 3 次）。
+  逐次计时（b_pay_slow，默认开启思考）：IntentResult 700 字 24s；chat 7–43s；ReflectVerdict 8.4k 字 78s；Report 8.7k 字 151s。
+  对照实验：同一短问题默认 21.8s（573 输出 token 中 reasoning 534），`extra_body={"thinking":{"type":"disabled"}}` 7.6s（reasoning 0）。
+  关闭思考后整轮 b_pay_slow：ReflectVerdict 4.5s、Report 73.5s，报告同样定位到 v2.3.1 把 maxPoolSize 50→20，质量相当。
+  **代码修正**：新增 `llm_extra_body`（默认关闭思考，设为 `{}` 恢复）；`llm_timeout_s` 60 → 180。
+- `test_restart_request_is_out_of_scope`：`RuntimeError: Event loop is closed`。langchain_openai 在进程内复用 httpx 连接池，pytest-asyncio 每个用例新建事件循环，旧连接关闭时回调到已关闭的循环。
+  **修正**：冒烟模块 `pytest.mark.asyncio(loop_scope="session")`。生产进程只有一个事件循环，不受影响。
+
+### 第 2 轮：1 failed / 3 passed（5 分钟）
+- `test_ocr_timeout_black_box_wording`：意图识别把"C 服务调用 OCR"整体填进 `endpoint`，拓扑解析失败 → needs_human。
+  **Prompt 修正**（`ops.intent` 1.0.0 → 1.0.1）：service 只填主体服务名；endpoint 只填接口名/路径，"调用 OCR"等调用关系写进 symptom。
+  OCR 两个用例连续两轮通过。
+
+### 第 3 轮：4 passed（7 分钟）
+- OCR 超时报告摘要："C 服务调用三方 OCR（ocr-thirdparty）从约 14:10 起响应延迟从 ~900ms 飙升至 ~8000ms……内部 OCR 路径（ocr-proxy → ocr）各节点指标正常"。
+- 拓扑问答摘要："C 服务调 OCR 有两条链路：① C 服务 → ocr-proxy → OCR（内部）……② C 服务 → OCR 三方，直连走 https。"

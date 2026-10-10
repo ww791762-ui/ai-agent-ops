@@ -27,7 +27,8 @@ class OpenAICompatLLM:
         from langchain_openai import ChatOpenAI
 
         model = ChatOpenAI(base_url=s.llm_base_url, model=s.llm_model, api_key=s.llm_api_key.get_secret_value(),
-                           timeout=s.llm_timeout_s, max_retries=2, temperature=0)
+                           timeout=s.llm_timeout_s, max_retries=2, temperature=0,
+                           extra_body=s.llm_extra_body or None)
         return cls(model, s.llm_structured_method)
 
     async def chat(self, messages: list[BaseMessage], tools: list[dict]) -> AIMessage:

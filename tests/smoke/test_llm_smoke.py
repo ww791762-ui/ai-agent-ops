@@ -10,7 +10,8 @@ from opsagent.agent.llm import OpenAICompatLLM
 from opsagent.config import Settings
 from tests.helpers import NOW, make_deps
 
-pytestmark = pytest.mark.llm
+# langchain_openai 在进程内复用 httpx 连接池，各用例共用一个事件循环，避免连接绑定到已关闭的循环
+pytestmark = [pytest.mark.llm, pytest.mark.asyncio(loop_scope="session")]
 
 
 async def ask(tmp_path, scenario: str, question: str, answers: tuple[str, ...] = ("prod，昨晚 20:00 开始",)):

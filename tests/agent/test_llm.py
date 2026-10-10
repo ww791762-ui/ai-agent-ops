@@ -59,3 +59,19 @@ async def test_structured_raises_after_second_failure():
     llm = OpenAICompatLLM(FakeChatModel(FakeRunnable([bad, bad])))
     with pytest.raises(StructuredOutputError):
         await llm.structured([HumanMessage("q")], ReflectVerdict)
+
+
+def test_from_settings_disables_thinking_and_uses_long_timeout():
+    from opsagent.config import Settings
+
+    s = Settings(_env_file=None, llm_api_key="k")
+    model = OpenAICompatLLM.from_settings(s)._model
+    assert model.request_timeout == 180
+    assert model.extra_body == {"thinking": {"type": "disabled"}}
+
+
+def test_from_settings_extra_body_overridable():
+    from opsagent.config import Settings
+
+    s = Settings(_env_file=None, llm_api_key="k", llm_extra_body={})
+    assert not OpenAICompatLLM.from_settings(s)._model.extra_body

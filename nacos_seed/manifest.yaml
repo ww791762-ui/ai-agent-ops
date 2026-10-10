@@ -1,6 +1,6 @@
 prompts:
   ops.system: {file: prompts/ops.system.md, version: 1.0.0}
-  ops.intent: {file: prompts/ops.intent.md, version: 1.0.0}
+  ops.intent: {file: prompts/ops.intent.md, version: 1.0.1}
   ops.reflect.inrun: {file: prompts/ops.reflect.inrun.md, version: 1.0.0}
   ops.report: {file: prompts/ops.report.md, version: 1.0.0}
 skills: [http_5xx, topology_qa, generic_troubleshoot]
