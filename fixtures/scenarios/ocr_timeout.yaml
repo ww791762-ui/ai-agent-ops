@@ -1,0 +1,31 @@
+name: ocr_timeout
+description: C 服务直连三方 OCR 超时；经 ocr-proxy 的内部 OCR 路径正常
+responses:
+  - tool: metrics.query
+    match: {node_id: svc-c, metric: timeout_count}
+    data: {unit: 次/分钟, by_downstream: {ocr-thirdparty: [["14:00", 0], ["14:10", 35], ["14:20", 52]], ocr-proxy: [["14:00", 0], ["14:10", 0], ["14:20", 0]]}}
+  - tool: metrics.query
+    match: {node_id: svc-c, metric: latency_p99}
+    data: {unit: ms, by_downstream: {ocr-thirdparty: [["14:00", 900], ["14:10", 8000], ["14:20", 8000]], ocr-proxy: [["14:00", 300], ["14:10", 310], ["14:20", 305]]}}
+  - tool: metrics.query
+    match: {node_id: svc-c, metric: error_rate}
+    data: {unit: 比例, series: [["14:00", 0.001], ["14:10", 0.18], ["14:20", 0.25]]}
+  - tool: logs.search
+    match: {node_id: svc-c}
+    data:
+      summary: "调用 ocr-thirdparty 大量超时，调用 ocr-proxy 正常"
+      lines:
+        - "2026-10-10T14:12:01+08:00 WARN call ocr-thirdparty https://api.ocr-vendor.example.com/v1/recognize?sign=9f8e7d timeout after 3000ms order_id=O20261010001"
+        - "2026-10-10T14:12:02+08:00 INFO call ocr-proxy /recognize cost=298ms"
+  - tool: metrics.query
+    match: {node_id: [ocr-proxy, ocr], metric: latency_p99}
+    data: {unit: ms, series: [["14:00", 280], ["14:10", 290], ["14:20", 285]]}
+  - tool: metrics.query
+    match: {node_id: [ocr-proxy, ocr], metric: error_rate}
+    data: {unit: 比例, series: [["14:00", 0.0], ["14:10", 0.0], ["14:20", 0.001]]}
+  - tool: logs.search
+    match: {node_id: [ocr-proxy, ocr]}
+    status: empty
+  - tool: changes.list
+    match: {node_id: [svc-c, ocr-proxy, ocr]}
+    status: empty
