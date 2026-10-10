@@ -7,7 +7,7 @@ import yaml
 
 from opsagent.config import Settings
 
-from .skill import build_skill_zip
+from .skill import build_skill_zip, nacos_skill_name
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,13 @@ class NacosSource(Protocol):
 
 
 class SdkNacosSource:
-    """通过 nacos-sdk-python（v2 API）读取本地 Nacos。"""
+    """通过 nacos-sdk-python（v2 API）读取本地 Nacos。
+
+    行为以 docs/superpowers/plans/2026-10-10-spike-results.md 为准：
+    - get_prompt 遇到不存在的 label 会静默回退到 latest，所以发布时必须保证 label 已绑定；
+    - Skill 在 Nacos 中的名称是内部 id 把下划线换成连字符（见 nacos_skill_name）；
+    - get_config 读不到配置时返回空字符串而不是抛异常。
+    """
 
     def __init__(self, settings: Settings) -> None:
         self._s = settings
@@ -53,12 +59,14 @@ class SdkNacosSource:
         from v2.nacos.ai.model.ai_param import GetPromptParam
 
         p = await self._ai.get_prompt(GetPromptParam(prompt_key=key, label=label))
+        if p is None or p.template is None:
+            raise LookupError(f"Nacos 中没有 Prompt {key}（label={label}）")
         return PromptDoc(key=key, version=str(p.version), template=p.template)
 
     async def get_skill_zip(self, name: str, label: str) -> bytes:
         from v2.nacos.ai.model.ai_param import DownloadSkillParam
 
-        data = await self._ai.download_skill_zip(DownloadSkillParam(skill_name=name, label=label))
+        data = await self._ai.download_skill_zip(DownloadSkillParam(skill_name=nacos_skill_name(name), label=label))
         if not data:
             raise LookupError(f"Nacos 中没有 Skill {name}（label={label}）")
         return data
@@ -66,7 +74,10 @@ class SdkNacosSource:
     async def get_config(self, data_id: str, group: str) -> str:
         from v2.nacos import ConfigParam
 
-        return await self._cfg.get_config(ConfigParam(data_id=data_id, group=group))
+        text = await self._cfg.get_config(ConfigParam(data_id=data_id, group=group))
+        if not text:
+            raise LookupError(f"Nacos 中没有配置 {group}/{data_id}")
+        return text
 
 
 class SeedDirSource:

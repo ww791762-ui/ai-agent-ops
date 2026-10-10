@@ -57,6 +57,11 @@ def parse_skill_zip(data: bytes, known_tools: set[str]) -> Skill:
                  md5=hashlib.md5(meta_bytes + b"\n" + md_bytes).hexdigest())
 
 
+def nacos_skill_name(skill_id: str) -> str:
+    """Nacos 3.2 的 Skill 名称只允许小写字母、数字和连字符，内部 id 中的下划线换成连字符。"""
+    return skill_id.replace("_", "-")
+
+
 def build_skill_zip(skill_dir: Path) -> bytes:
     """把一个 Skill 目录打包成 zip，包内路径为 <目录名>/<相对路径>。"""
     buf = io.BytesIO()
