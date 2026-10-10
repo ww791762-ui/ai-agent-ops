@@ -39,14 +39,51 @@ def render_report(r: dict) -> str:
     return "\n".join(out)
 
 
-def _wait(client: httpx.Client, run_id: str) -> dict:
+def _wait(client: httpx.Client, run_id: str, timeout_s: float = 300, interval_s: float = 1,
+          sleep=time.sleep, clock=time.monotonic) -> dict | None:
+    """轮询 Run 直到离开 queued/running；超时、非 200 或响应格式不对时打印提示并返回 None。"""
+    deadline = clock() + timeout_s
     while True:
-        run = client.get(f"/api/v1/runs/{run_id}").json()
-        if run["status"] not in ("queued", "running"):
+        r = client.get(f"/api/v1/runs/{run_id}")
+        if r.status_code != 200:
+            print(f"\n查询 Run 状态失败（HTTP {r.status_code}）：{r.text[:200]}")
+            return None
+        try:
+            run = r.json()
+            status = run["status"]
+        except (ValueError, KeyError, TypeError):
+            print(f"\n服务端返回的 Run 状态格式不正确：{r.text[:200]}")
+            return None
+        if status not in ("queued", "running"):
             print()
             return run
+        if clock() >= deadline:
+            print(f"\n等待超时（{timeout_s:.0f} 秒），Run {run_id} 仍在执行，可稍后查询 /api/v1/runs/{run_id}")
+            return None
         print(".", end="", flush=True)
-        time.sleep(1)
+        sleep(interval_s)
+
+
+def _ask(client: httpx.Client, session_id: str | None, msg: str) -> str | None:
+    """发送一条消息并输出结果，返回（可能更新后的）session_id。"""
+    r = client.post("/api/v1/chat", json={"session_id": session_id, "message": msg})
+    if r.status_code == 409:
+        print(r.json()["detail"])
+        return session_id
+    r.raise_for_status()
+    session_id = r.json()["session_id"]
+    run = _wait(client, r.json()["run_id"])
+    if run is None:
+        return session_id
+    if run["status"] == "waiting_user":
+        print(f"Agent> {run['question']}")
+    elif run["status"] in ("completed", "partial"):
+        print(render_report(run["report"]))
+        if run["status"] == "partial":
+            print("\n（部分结果：" + "；".join(run["partial_reasons"]) + "）")
+    else:
+        print(f"Agent> 执行失败：{run.get('error')}", file=sys.stderr)
+    return session_id
 
 
 def main() -> None:
@@ -63,21 +100,10 @@ def main() -> None:
                 continue
             if msg in ("exit", "quit"):
                 break
-            r = client.post("/api/v1/chat", json={"session_id": session_id, "message": msg})
-            if r.status_code == 409:
-                print(r.json()["detail"])
-                continue
-            r.raise_for_status()
-            session_id = r.json()["session_id"]
-            run = _wait(client, r.json()["run_id"])
-            if run["status"] == "waiting_user":
-                print(f"Agent> {run['question']}")
-            elif run["status"] in ("completed", "partial"):
-                print(render_report(run["report"]))
-                if run["status"] == "partial":
-                    print("\n（部分结果：" + "；".join(run["partial_reasons"]) + "）")
-            else:
-                print(f"Agent> 执行失败：{run.get('error')}", file=sys.stderr)
+            try:
+                session_id = _ask(client, session_id, msg)
+            except httpx.HTTPError as e:
+                print(f"请求失败：{type(e).__name__}: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
