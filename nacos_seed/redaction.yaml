@@ -1,0 +1,15 @@
+block_fields: [password, passwd, token, secret, authorization, cookie, api_key, private_key]
+block_patterns:
+  private_key: '-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----'
+  bearer: '(?i)bearer\s+[A-Za-z0-9._~+/=-]+'
+  jwt: '\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'
+  aws_ak: '\bAKIA[0-9A-Z]{16}\b'
+  url_secret: '(?i)[?&](?:token|sign|signature|access_token|secret)=[^&\s"'']+'
+  db_password: '://[^:/\s@]+:[^@/\s]+@'
+  kv_secret: '(?i)\b(?:password|passwd|pwd|secret|token)\s*[=:]\s*[^\s,;&"'']+'
+mask_patterns:
+  phone: '(?<!\d)1[3-9]\d{9}(?!\d)'
+  id_card: '(?<![\dXx])\d{17}[\dXx](?![\dXx])'
+  bank_card: '(?<!\d)\d{16,19}(?!\d)'
+  email: '[\w.+-]+@[\w-]+\.[\w.-]+'
+tokenize_fields: [player_id, user_id, order_id]
