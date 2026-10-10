@@ -20,18 +20,30 @@ class SessionBusy(Exception):
 class Runner:
     def __init__(self, graph: Any, runs: RunRepo, store: ConfigStore,
                  clarify_timeout: timedelta = timedelta(minutes=30),
-                 clock: Callable[[], datetime] | None = None) -> None:
+                 clock: Callable[[], datetime] | None = None,
+                 run_timeout: timedelta = timedelta(minutes=10)) -> None:
         self._graph = graph
         self._runs = runs
         self._store = store
         self._clarify_timeout = clarify_timeout
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._run_timeout = run_timeout
+        self._locks: dict[str, asyncio.Lock] = {}
         self._tasks: set[asyncio.Task] = set()
 
     async def submit(self, session_id: str | None, message: str) -> tuple[str, str]:
         session_id = session_id or new_id("s")
-        if await self._runs.active_run(session_id):
-            raise SessionBusy(session_id)
+        lock = self._locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            return await self._submit_locked(session_id, message)
+
+    async def _submit_locked(self, session_id: str, message: str) -> tuple[str, str]:
+        active = await self._runs.active_run(session_id)
+        if active:
+            if self._clock() - active.updated_at > self._run_timeout:
+                await self._runs.finish(active.id, status="failed", error="运行超时，状态已过期")
+            else:
+                raise SessionBusy(session_id)
         waiting = await self._runs.waiting_run(session_id)
         if waiting and self._clock() - waiting.updated_at > self._clarify_timeout:
             await self._runs.finish(waiting.id, status="cancelled", error="追问超过时限未回复")
@@ -71,7 +83,10 @@ class Runner:
                                     partial_reasons=partial)
         except Exception as e:
             log.exception("Run %s 执行失败", run_id)
-            await self._runs.finish(run_id, status="failed", error=f"{type(e).__name__}: {e}"[:500])
+            try:
+                await self._runs.finish(run_id, status="failed", error=f"{type(e).__name__}: {e}"[:500])
+            except Exception:
+                log.exception("Run %s 标记失败状态时出错", run_id)
 
     async def drain(self) -> None:
         while self._tasks:

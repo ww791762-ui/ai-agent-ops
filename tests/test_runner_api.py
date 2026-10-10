@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -92,3 +93,46 @@ async def test_graph_exception_marks_failed(tmp_path, db_sm):
     await runner.drain()
     run = await runs.get(rid)
     assert run.status == "failed" and "模型挂了" in run.error
+
+
+async def test_finish_failure_on_success_path_marks_failed(tmp_path, db_sm, monkeypatch):
+    runner, runs, _ = await setup(tmp_path, db_sm, b_pay_script())
+    real = RunRepo.finish
+    calls = []
+
+    async def flaky(self, run_id, **kw):
+        calls.append(kw["status"])
+        if len(calls) == 1:
+            raise RuntimeError("db hiccup")
+        return await real(self, run_id, **kw)
+
+    sid, rid = await runner.submit(None, "b 服务支付接口昨晚开始变慢")
+    await runner.drain()
+    monkeypatch.setattr(RunRepo, "finish", flaky)
+    await runner.submit(sid, "prod")
+    await runner.drain()
+    assert calls[0] in ("completed", "partial")
+    run = await runs.get(rid)
+    assert run.status == "failed" and "db hiccup" in run.error
+
+
+async def test_stale_running_run_is_failed_and_new_run_starts(tmp_path, db_sm):
+    now = [datetime.now(UTC)]
+    runner, runs, _ = await setup(tmp_path, db_sm, b_pay_script()[:1], clock=lambda: now[0])
+    await runs.create(run_id="run-stale", session_id="s-stale", question="q", prompt_versions={})
+    await runs.mark_running("run-stale")
+    now[0] += timedelta(minutes=11)
+    _, rid = await runner.submit("s-stale", "b 服务支付接口昨晚开始变慢")
+    await runner.drain()
+    old = await runs.get("run-stale")
+    assert old.status == "failed" and "过期" in old.error
+    assert rid != "run-stale"
+
+
+async def test_concurrent_submit_same_session_one_busy(tmp_path, db_sm):
+    runner, _, _ = await setup(tmp_path, db_sm, b_pay_script()[:1])
+    res = await asyncio.gather(runner.submit("s-race", "a"), runner.submit("s-race", "b"),
+                               return_exceptions=True)
+    assert sum(isinstance(r, SessionBusy) for r in res) == 1
+    assert sum(isinstance(r, tuple) for r in res) == 1
+    await runner.drain()
