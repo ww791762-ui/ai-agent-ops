@@ -20,6 +20,25 @@ def drop_unknown_evidence(report: Report, known: set[str]) -> tuple[Report, int]
     return report.model_copy(update={"hops": hops, "findings": findings, "hypotheses": hypotheses}), dropped
 
 
+_INCOMPLETE = ("backend_error", "denied", "truncated")
+_STATUS_TEXT = {"backend_error": "后端调用失败", "denied": "调用被拒绝", "truncated": "结果被截断"}
+
+
+def failed_tool_calls(tool_log: list[dict]) -> list[dict]:
+    """失败或结果不完整的工具调用（按 工具+节点+状态 去重，保持顺序）。"""
+    seen, out = set(), []
+    for e in tool_log:
+        key = (e.get("tool"), e.get("node_id"), e.get("status"))
+        if e.get("status") in _INCOMPLETE and key not in seen:
+            seen.add(key)
+            out.append(e)
+    return out
+
+
+def _label(e: dict) -> str:
+    return f"{e['tool']}@{e['node_id']}" if e.get("node_id") else str(e["tool"])
+
+
 def make_finalize(deps: Deps):
     async def finalize(state: dict) -> dict:
         intent = state.get("intent") or {}
@@ -42,6 +61,16 @@ def make_finalize(deps: Deps):
                              if isinstance(m, AIMessage) and m.content), "")
                 report = Report(summary=str(last) or "未能生成结构化报告", needs_human=not last)
                 partial.append("报告格式校验失败，输出为纯文本")
+
+        failed = failed_tool_calls(state.get("tool_log", []))
+        if failed:
+            partial.append("部分工具调用失败或结果不完整："
+                           + "，".join(f"{_label(e)}({e['status']})" for e in failed))
+            missing = list(report.missing_evidence)
+            for e in failed:
+                if not any(_label(e) in m for m in missing):
+                    missing.append(f"{_label(e)}：{_STATUS_TEXT[e['status']]}，相关证据缺失或不完整")
+            report = report.model_copy(update={"missing_evidence": missing})
 
         report, dropped = drop_unknown_evidence(report, set(state.get("evidence_ids", [])))
         report = report.model_copy(update={"dropped_claims": dropped,

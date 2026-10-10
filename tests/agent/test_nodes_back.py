@@ -147,3 +147,25 @@ async def test_reflect_structured_failure_degrades_without_retry(tmp_path):
     out = await make_reflect(deps)(ts_state(deps.store, tool_log=FULL_LOG))
     assert out["reflect_retry"] is False
     assert any("反思检查失败" in r for r in out["partial_reasons"])
+
+
+async def test_finalize_failed_tools_make_run_partial(tmp_path):  # T7（节点级）
+    report = Report(summary="结论", missing_evidence=["metrics.query@kong 被拒绝，缺少延迟指标"])
+    deps, _, _ = await make_deps(tmp_path, [report])
+    tool_log = [log("topology.trace", "svc-b-pay"), log("logs.search", "svc-b", status="backend_error", ev=None),
+                log("metrics.query", "kong", status="denied", ev=None),
+                log("logs.search", "proxy", status="truncated", ev="ev-2"), log("changes.list", "svc-b", "empty")]
+    out = await make_finalize(deps)(ts_state(deps.store, tool_log=tool_log))
+    reason = next(r for r in out["partial_reasons"] if "部分工具调用失败" in r)
+    assert "logs.search@svc-b(backend_error)" in reason and "metrics.query@kong(denied)" in reason
+    assert "logs.search@proxy(truncated)" in reason and "changes.list" not in reason
+    missing = out["report"]["missing_evidence"]
+    assert sum("metrics.query@kong" in m for m in missing) == 1  # 报告已提到的不重复追加
+    assert any("logs.search@svc-b" in m for m in missing) and any("logs.search@proxy" in m for m in missing)
+    assert not any("topology.trace" in m or "changes.list" in m for m in missing)
+
+
+async def test_finalize_all_tools_ok_not_partial(tmp_path):
+    deps, _, _ = await make_deps(tmp_path, [Report(summary="结论")])
+    out = await make_finalize(deps)(ts_state(deps.store, tool_log=FULL_LOG))
+    assert out["partial_reasons"] == [] and out["report"]["missing_evidence"] == []

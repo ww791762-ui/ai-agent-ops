@@ -98,3 +98,21 @@ async def test_followup_question_resets_messages_and_keeps_history(tmp_path):
     assert len(result["history"]) == 2
     intent_prompt = llm.calls[-1]["messages"][0].content
     assert "b 服务支付接口昨晚开始变慢" in intent_prompt  # 上一轮问答作为 history 带入
+
+
+async def test_backend_error_tool_makes_run_partial(tmp_path):  # T7
+    from pathlib import Path
+
+    from opsagent.gateway.adapters.mock import MockResponse, MockScenario
+    from opsagent.gateway.gateway import Gateway
+    from opsagent.gateway.tools import build_registry
+
+    deps, llm, rec = await make_deps(tmp_path, b_pay_script()[1:])
+    scenario = MockScenario.from_yaml_file(Path("fixtures/scenarios/b_pay_slow.yaml"))
+    # b 服务日志后端故障：排在最前面，优先匹配
+    scenario.responses.insert(0, MockResponse(tool="logs.search", match={"node_id": "svc-b"}, status="error"))
+    deps.gateway = Gateway(build_registry(deps.topo, scenario), deps.topo, rec, deps.store.redactor, backoff_s=0)
+    result = await start(build_graph(deps, InMemorySaver()), "b 服务支付接口昨晚开始变慢，prod")
+    assert llm.remaining == 0
+    assert any("部分工具调用失败" in r and "logs.search@svc-b(backend_error)" in r for r in result["partial_reasons"])
+    assert any("logs.search@svc-b" in m for m in result["report"]["missing_evidence"])
