@@ -152,3 +152,48 @@ async def test_checkpoint_never_stores_raw_secrets(tmp_path, db_sm):
     dump = repr(saver.storage) + repr(saver.writes) + repr(saver.blobs)
     dump += "".join(repr(c) for c in saver.list({"configurable": {"thread_id": sid}}))
     assert "hunter2" not in dump and "abc123" not in dump
+
+
+class SlowGraph:
+    """ainvoke 一直等到 release 被 set 的假图，用来模拟执行中的长 Run。"""
+
+    def __init__(self) -> None:
+        self.release = asyncio.Event()
+        self.started = asyncio.Event()
+
+    async def ainvoke(self, graph_input, config):
+        self.started.set()
+        await self.release.wait()
+        return {"report": {"summary": "ok"}}
+
+    async def aget_state(self, config):
+        class Snap:
+            tasks = []
+        return Snap()
+
+
+async def test_live_run_older_than_timeout_is_not_failed(tmp_path, db_sm):
+    now = [datetime.now(UTC)]
+    deps, _, _ = await make_deps(tmp_path, [])
+    runs = RunRepo(db_sm)
+    graph = SlowGraph()
+    runner = Runner(graph, runs, deps.store, clock=lambda: now[0])
+    sid, rid = await runner.submit(None, "b 服务支付接口昨晚开始变慢")
+    await graph.started.wait()
+    now[0] += timedelta(minutes=11)
+    with pytest.raises(SessionBusy):
+        await runner.submit(sid, "再问一个")
+    assert (await runs.get(rid)).status == "running"
+    graph.release.set()
+    await runner.drain()
+    assert (await runs.get(rid)).status == "completed"
+
+
+async def test_run_exceeding_timeout_is_failed(tmp_path, db_sm):
+    deps, _, _ = await make_deps(tmp_path, [])
+    runs = RunRepo(db_sm)
+    runner = Runner(SlowGraph(), runs, deps.store, run_timeout=timedelta(milliseconds=50))
+    _, rid = await runner.submit(None, "b 服务支付接口昨晚开始变慢")
+    await asyncio.wait_for(runner.drain(), 5)
+    run = await runs.get(rid)
+    assert run.status == "failed" and "运行超时" in run.error

@@ -59,3 +59,22 @@ async def test_topology_roundtrip_idempotent(db_sm):
     assert len(loaded.nodes()) == len(topo.nodes())
     assert sorted(p.path_id for p in loaded.trace("svc-c")) == ["c-ocr-direct", "c-ocr-via-proxy"]
     assert loaded.get("svc-b-pay").parent == "svc-b"
+
+
+async def test_finish_does_not_overwrite_terminal_run(db_sm):
+    runs = RunRepo(db_sm)
+    await runs.create(run_id="run-t", session_id="s-t", question="q", prompt_versions={})
+    await runs.mark_running("run-t")
+    assert await runs.finish("run-t", status="failed", error="运行超时") is True
+    assert await runs.finish("run-t", status="completed", report={"summary": "late"}) is False
+    run = await runs.get("run-t")
+    assert run.status == "failed" and run.error == "运行超时"
+    assert await runs.report("run-t") is None
+
+
+async def test_finish_twice_with_report_does_not_conflict(db_sm):
+    runs = RunRepo(db_sm)
+    await runs.create(run_id="run-r", session_id="s-r", question="q", prompt_versions={})
+    await runs.finish("run-r", status="completed", report={"summary": "a"})
+    assert await runs.finish("run-r", status="partial", report={"summary": "b"}) is False
+    assert await runs.report("run-r") == {"summary": "a"}

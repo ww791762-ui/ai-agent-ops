@@ -30,6 +30,7 @@ class Runner:
         self._run_timeout = run_timeout
         self._locks: dict[str, asyncio.Lock] = {}
         self._tasks: set[asyncio.Task] = set()
+        self._live: dict[str, asyncio.Task] = {}  # 本进程正在执行的 Run：run_id → Task
 
     async def submit(self, session_id: str | None, message: str) -> tuple[str, str]:
         session_id = session_id or new_id("s")
@@ -40,7 +41,9 @@ class Runner:
     async def _submit_locked(self, session_id: str, message: str) -> tuple[str, str]:
         active = await self._runs.active_run(session_id)
         if active:
-            if self._clock() - active.updated_at > self._run_timeout:
+            # 本进程仍在执行的 Run 永远不算过期；只有无人认领（如上一个进程遗留）的 running 才按超时回收
+            live = self._live.get(active.id)
+            if (live is None or live.done()) and self._clock() - active.updated_at > self._run_timeout:
                 await self._runs.finish(active.id, status="failed", error="运行超时，状态已过期")
             else:
                 raise SessionBusy(session_id)
@@ -67,12 +70,23 @@ class Runner:
     def _spawn(self, run_id: str, session_id: str, graph_input: Any) -> None:
         task = asyncio.create_task(self._execute(run_id, session_id, graph_input))
         self._tasks.add(task)
+        self._live[run_id] = task
         task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(lambda t: self._live.pop(run_id, None) if self._live.get(run_id) is t else None)
 
     async def _execute(self, run_id: str, session_id: str, graph_input: Any) -> None:
         config = {"configurable": {"thread_id": session_id}, "recursion_limit": 60}
         try:
-            result = await self._graph.ainvoke(graph_input, config)
+            deadline = asyncio.timeout(self._run_timeout.total_seconds())
+            try:
+                async with deadline:
+                    result = await self._graph.ainvoke(graph_input, config)
+            except TimeoutError:
+                if not deadline.expired():
+                    raise  # 图内部抛出的 TimeoutError，按普通异常处理
+                log.warning("Run %s 运行超时", run_id)
+                await self._runs.finish(run_id, status="failed", error="运行超时")
+                return
             snap = await self._graph.aget_state(config)
             pending = [i for t in snap.tasks for i in t.interrupts]
             if pending:

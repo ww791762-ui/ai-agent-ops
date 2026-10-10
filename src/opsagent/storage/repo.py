@@ -12,6 +12,9 @@ from .models import (AuditRow, EvidenceRow, ReportRow, RunRow, SessionRow, ToolC
                      TopoNodeRow, TopoPathRow)
 
 
+_OPEN_STATUSES = ("queued", "running", "waiting_user")
+
+
 class RunRepo:
     def __init__(self, sm: async_sessionmaker) -> None:
         self._sm = sm
@@ -35,7 +38,7 @@ class RunRepo:
             return (await s.scalars(stmt)).first()
 
     async def active_run(self, session_id: str) -> RunRow | None:
-        return await self._latest(session_id, ("queued", "running"))
+        return await self._latest(session_id, ("queued", "running"))  # 都属于 _OPEN_STATUSES
 
     async def waiting_run(self, session_id: str) -> RunRow | None:
         return await self._latest(session_id, ("waiting_user",))
@@ -53,9 +56,12 @@ class RunRepo:
 
     async def finish(self, run_id: str, *, status: str, report: dict | None = None, intent: dict | None = None,
                      skill: dict | None = None, step_count: int = 0, partial_reasons: Iterable[str] = (),
-                     error: str | None = None) -> None:
+                     error: str | None = None) -> bool:
+        """把 Run 置为终态。只更新仍处于 queued/running/waiting_user 的 Run，返回是否真的更新了。"""
         async with self._sm.begin() as s:
-            run = await s.get(RunRow, run_id)
+            run = await s.get(RunRow, run_id, with_for_update=True)
+            if run is None or run.status not in _OPEN_STATUSES:
+                return False
             run.status = status
             run.step_count = step_count
             run.partial_reasons = list(partial_reasons)
@@ -68,6 +74,7 @@ class RunRepo:
                 run.skill_id, run.skill_version, run.skill_md5 = skill["id"], skill["version"], skill["md5"]
             if report is not None:
                 s.add(ReportRow(run_id=run_id, content=report))
+        return True
 
     async def report(self, run_id: str) -> dict | None:
         async with self._sm() as s:
