@@ -136,3 +136,19 @@ async def test_concurrent_submit_same_session_one_busy(tmp_path, db_sm):
     assert sum(isinstance(r, SessionBusy) for r in res) == 1
     assert sum(isinstance(r, tuple) for r in res) == 1
     await runner.drain()
+
+
+async def test_checkpoint_never_stores_raw_secrets(tmp_path, db_sm):
+    deps, _, _ = await make_deps(tmp_path, b_pay_script(), recorder=DbRecorder(db_sm))
+    saver = InMemorySaver()
+    runs = RunRepo(db_sm)
+    runner = Runner(build_graph(deps, saver), runs, deps.store)
+    sid, rid = await runner.submit(None, "b 服务支付接口昨晚开始变慢 password=hunter2")
+    await runner.drain()
+    assert (await runs.get(rid)).status == "waiting_user"
+    await runner.submit(sid, "prod token=abc123")
+    await runner.drain()
+    assert (await runs.get(rid)).status in ("completed", "partial")
+    dump = repr(saver.storage) + repr(saver.writes) + repr(saver.blobs)
+    dump += "".join(repr(c) for c in saver.list({"configurable": {"thread_id": sid}}))
+    assert "hunter2" not in dump and "abc123" not in dump

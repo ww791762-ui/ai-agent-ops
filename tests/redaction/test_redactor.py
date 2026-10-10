@@ -85,3 +85,23 @@ def test_url_secret_keeps_delimiters(r):
     out = r.redact_text("/x?token=abc")
     assert "?[REDACTED:url_secret]" in out
     assert "abc" not in out
+
+
+def test_redact_text_is_idempotent(r):
+    for text in ("user_id=88231", '{"user_id": "88231", "order_id":99} password=x',
+                 "player_id: p-1 phone 13812341234"):
+        once = r.redact_text(text)
+        assert r.redact_text(once) == once
+
+
+def test_existing_token_is_not_retokenized(r):
+    assert r.redact_text("user_id=user_7bbb") == "user_id=user_7bbb"
+    assert r.redact_obj({"player_id": "player_4aec"}) == {"player_id": "player_4aec"}
+    # 非本类型的令牌形式仍然要脱敏
+    assert r.redact_obj({"player_id": "user_4aec"})["player_id"] != "user_4aec"
+
+
+def test_redact_obj_is_idempotent(r):
+    obj = {"user_id": "88231", "password": "x", "nested": [{"order_id": 7, "msg": "user_id=1"}]}
+    once = r.redact_obj(obj)
+    assert r.redact_obj(once) == once

@@ -58,7 +58,14 @@ class Redactor:
     def with_salt(self, salt: str) -> "Redactor":
         return Redactor(self._rules, salt)
 
+    @staticmethod
+    def is_token(kind: str, value: str) -> bool:
+        """value 已经是该类型的令牌（如 user_7bbb）时返回 True，用于保证脱敏幂等。"""
+        return re.fullmatch(re.escape(kind.removesuffix("_id")) + r"_[0-9a-f]{4}", value) is not None
+
     def tokenize(self, kind: str, value: str) -> str:
+        if self.is_token(kind, value):
+            return value
         digest = hashlib.sha256(f"{self._salt}:{kind}:{value}".encode()).hexdigest()[:4]
         return f"{kind.removesuffix('_id')}_{digest}"
 
@@ -81,6 +88,8 @@ class Redactor:
             text = rx.sub(repl, text)
         if self._tok_text:
             def tok(m: re.Match) -> str:
+                if self.is_token(m.group(1).lower(), m.group(2)):
+                    return m.group(0)
                 stats["tokenize:" + m.group(1).lower()] += 1
                 prefix = m.group(0)[: m.start(2) - m.start(0)]
                 return prefix + self.tokenize(m.group(1).lower(), m.group(2))
@@ -98,8 +107,9 @@ class Redactor:
                     out[k] = f"[REDACTED:{key}]"
                     stats["field:" + key] += 1
                 elif v not in (None, "") and key in self._tok_fields:
+                    if not self.is_token(key, str(v)):
+                        stats["tokenize:" + key] += 1
                     out[k] = self.tokenize(key, str(v))
-                    stats["tokenize:" + key] += 1
                 else:
                     out[k] = self.redact_obj(v, stats)
             return out

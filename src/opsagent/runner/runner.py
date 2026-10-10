@@ -49,8 +49,10 @@ class Runner:
             await self._runs.finish(waiting.id, status="cancelled", error="追问超过时限未回复")
             waiting = None
         if waiting:
+            # 先脱敏再进图：checkpoint 里只保存脱敏后的回答
+            answer = self._store.redactor().with_salt(waiting.id).redact_text(message)
             await self._runs.mark_running(waiting.id)
-            self._spawn(waiting.id, session_id, Command(resume=message))
+            self._spawn(waiting.id, session_id, Command(resume=answer))
             return session_id, waiting.id
 
         run_id = new_id("run")
@@ -58,7 +60,7 @@ class Runner:
         await self._runs.create(run_id=run_id, session_id=session_id, question=question,
                                 prompt_versions=self._store.versions())
         await self._runs.mark_running(run_id)
-        self._spawn(run_id, session_id, {"question": message, "run_id": run_id,
+        self._spawn(run_id, session_id, {"question": question, "run_id": run_id,
                                          "now": self._clock().astimezone().isoformat()})
         return session_id, run_id
 
