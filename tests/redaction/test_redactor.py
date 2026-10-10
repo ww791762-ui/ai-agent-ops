@@ -67,3 +67,21 @@ def test_redact_obj_fields_and_stats(r):
     assert out["nested"][0]["msg"] == "call 138****1234"
     assert out["count"] == 3
     assert stats["phone"] == 1 and stats["field:authorization"] == 1
+
+
+def test_json_text_secrets_and_tokens(r):
+    text = '{"user_id": "88231", "password": "hunter2", "order_id":99}'
+    out = r.redact_text(text)
+    assert "hunter2" not in out
+    assert "88231" not in out
+    assert "99" not in out.replace(r.tokenize("order_id", "99"), "")
+    assert f'"user_id": "{r.tokenize("user_id", "88231")}"' in out
+    assert f'"order_id":{r.tokenize("order_id", "99")}' in out
+
+
+def test_url_secret_keeps_delimiters(r):
+    out = r.redact_text("/x?x=1&token=abc&y=2")
+    assert "&[REDACTED:url_secret]&y=2" in out
+    out = r.redact_text("/x?token=abc")
+    assert "?[REDACTED:url_secret]" in out
+    assert "abc" not in out

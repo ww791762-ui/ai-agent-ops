@@ -51,7 +51,7 @@ class Redactor:
         self._block_fields = [f.lower() for f in rules.block_fields]
         self._tok_fields = {f.lower() for f in rules.tokenize_fields}
         self._tok_text = (
-            re.compile(r"(?i)\b(" + "|".join(map(re.escape, self._tok_fields)) + r")\s*[=:]\s*\"?([\w-]+)")
+            re.compile(r"(?i)\b(" + "|".join(map(re.escape, self._tok_fields)) + r")\"?\s*[=:]\s*\"?([\w-]+)")
             if self._tok_fields else None
         )
 
