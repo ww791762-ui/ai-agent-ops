@@ -1,0 +1,7 @@
+id: generic_troubleshoot
+version: 1.0.0
+intents: [troubleshoot]
+keywords: []
+allowed_tools: [topology.trace, metrics.query, logs.search, changes.list, kong.upstream_health]
+required_evidence: [链路逐跳状态, 相关指标或日志]
+max_steps: 12

@@ -1,0 +1,7 @@
+id: http_5xx
+version: 1.0.0
+intents: [troubleshoot]
+keywords: [5xx, "500", "502", "503", "504", "499", 错误率, 报错, 变慢, 慢, 超时, 延迟]
+allowed_tools: [topology.trace, metrics.query, logs.search, changes.list, kong.upstream_health]
+required_evidence: [链路逐跳状态, 异常开始时间, 受影响接口的错误或延迟指标, 相关错误日志, 近期变更]
+max_steps: 15

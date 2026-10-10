@@ -1,0 +1,7 @@
+id: topology_qa
+version: 1.0.0
+intents: [topology_query]
+keywords: [链路, 经过, 调用, 架构, 走哪]
+allowed_tools: [topology.trace]
+required_evidence: [topology_trace 返回的链路]
+max_steps: 5
